@@ -1,6 +1,7 @@
 const { solveCaptcha } = require('../../services/captchaService');
 const nodemailer = require('nodemailer');
-const preferredDoctors = require('./doctors_whitelist'); 
+const preferredDoctors = require('./constants/doctors_whitelist');
+const fs = require('fs'); // נוסף כדי לאפשר קריאה של קובץ ה-config
 
 const transporter = nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE,
@@ -21,20 +22,35 @@ async function sendEmailNotification(docName, city, dateStr) {
 }
 
 async function runClalit(page) {
+    // טעינת ההגדרות שנשמרו מהדשבורד
+    const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
     console.log("--- מתחיל סריקה עבור כללית (מצב Stealth פעיל) ---");
     await page.goto('https://e-services.clalit.co.il/onlineweb/general/login.aspx');
 
-    try {
+  try {
+        // 1. לחיצה על לשונית ה-SMS (הסלקטור שעבד לך קודם)
         const exactSmsBtnSelector = '#ctl00_cphBody__loginView_btnSendSMS';
         await page.waitForSelector(exactSmsBtnSelector, { state: 'visible', timeout: 30000 });
+        console.log("👆 עובר ללשונית 'קוד חד-פעמי לנייד'...");
         await page.click(exactSmsBtnSelector);
         
         await page.waitForTimeout(2000);
+
+        // 2. הזנת תעודת הזהות מהדשבורד (שימוש בסלקטור tbUserId שעבד לך קודם)
         const userIdSelector = '#ctl00_cphBody__loginView_tbUserId';
         await page.waitForSelector(userIdSelector, { state: 'visible', timeout: 30000 });
 
-        console.log("⌨️ מזין תעודת זהות...");
-        await page.type(userIdSelector, '029280484', { delay: 150 });
+        // המרה ודאית לטקסט (כדי שיפעל בדיוק כמו המחרוזת '029280484' שעבדה קודם)
+        const idToType = String(config.userId || '');
+
+        console.log(`⌨️ מזין תעודת זהות: ${idToType}`);
+        
+        // החזרנו למהירות 150 שעבדה לך בצורה חלקה בקוד המקורי
+        await page.type(userIdSelector, idToType, { delay: 150 }); 
+        
+        await page.waitForTimeout(1500); // המתנה קטנה לפני מעבר לקפצ'ה
+        
+        console.log("⏳ ממתין לקוד SMS...");
         
         const captchaEl = await page.waitForSelector('img[id*="Captcha"]', { state: 'visible', timeout: 15000 });
         const captchaImgPath = 'captcha_temp.png';
@@ -42,11 +58,14 @@ async function runClalit(page) {
         
         const solvedText = await solveCaptcha(captchaImgPath);
         if (solvedText) {
-            await page.type('#ctl00_cphBody__loginView_tbCaptchaLogin', solvedText, { delay: 150 });
+            console.log(`⌨️ מזין קפצ'ה: ${solvedText}`);
+            await page.type('#ctl00_cphBody__loginView_tbCaptchaLogin', solvedText, { delay: 200 });
+            await page.waitForTimeout(1200); // המתנה לפני לחיצה
         }
 
         const submitBtnId = '#ctl00_cphBody__loginView_lblSendOTP';
-        await page.evaluate((btnId) => document.querySelector(btnId).click(), submitBtnId);
+        // שימוש בלחיצה רגילה במקום evaluate כדי לדמות עכבר
+        await page.click(submitBtnId);
 
         console.log("--------------------------------------------------");
         console.log("אנא הזן את קוד ה-SMS בתיבה שנפתחה ולחץ כניסה.");
@@ -74,12 +93,22 @@ async function runClalit(page) {
 
         await target.click('#ProfessionVisitButton');
         await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
-        await target.selectOption('#SelectedGroupCode', '32');
-        await page.waitForTimeout(5000); 
+
+        // בחירה דינמית מתוך קובץ ה-config
+        const groupId = config.selectedGroup || '32';
+        const specId = config.selectedSpecialization || groupId;
+
+        console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
+        await target.selectOption('#SelectedGroupCode', groupId);
+        
+        // המתנה לשינוי ב-DOM של רשימת המקצועות
+        await page.waitForTimeout(3000); 
+        await target.selectOption('#SelectedSpecializationCode', specId);
+        await page.waitForTimeout(1000);
 
         // --- לוגיקת החיפוש המעודכנת ---
         const sentInThisRun = new Set(); 
-        const citiesToSearch = ['כפר קרע', 'הרצליה', 'תל אביב - יפו'];
+        const citiesToSearch = [config.city]; // חיפוש לפי העיר שנבחרה בדשבורד
 
         for (const city of citiesToSearch) {
             console.log(`\n===================================`);
@@ -123,19 +152,21 @@ await page.waitForTimeout(2000);
             while (hasNextPage) {
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} ב${city}...`);
 
-                const foundInPage = await target.evaluate((whitelist) => {
-                    const results = [];
-                    const cards = document.querySelectorAll('.diaryDoctor'); 
-                    cards.forEach(card => {
-                        const docNameText = card.querySelector('.doctorName')?.innerText || '';
+                const foundInPage = await target.evaluate((whitelist, start, end) => {
+                    return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
+                        const docName = card.querySelector('.doctorName')?.innerText || '';
                         const dateText = card.querySelector('.visitDateTime')?.innerText || '';
-                        const isPreferred = whitelist.some(name => docNameText.includes(name));
-                        if (isPreferred && dateText !== '') {
-                            results.push({ doctor: docNameText, dateStr: dateText });
-                        }
-                    });
-                    return results;
-                }, preferredDoctors);
+                        
+                        const match = dateText.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+                        if (!match) return null;
+                        
+                        const isoDate = `${match[3]}-${match[2]}-${match[1]}`;
+                        const inRange = (!start || isoDate >= start) && (!end || isoDate <= end);
+                        const isPreferred = whitelist.some(name => docName.includes(name));
+
+                        return (isPreferred && inRange) ? { doctor: docName, dateStr: dateText } : null;
+                    }).filter(res => res !== null);
+                }, preferredDoctors, config.startDate, config.endDate);
 
                 for (const appt of foundInPage) {
                     const key = `${appt.doctor}-${appt.dateStr}`;
@@ -150,14 +181,18 @@ await page.waitForTimeout(2000);
                     }
                 }
 
-                // בדיקת דף הבא לפי ה-Title "הבא" שזיהית
-                const nextBtn = await target.$('a[title="הבא"]');
-                if (nextBtn) {
-                    console.log("➡️ עובר לדף הבא...");
+               // בדיקת דף הבא - מוודא שהכפתור קיים ונראה לעין
+                const nextBtnSelector = 'a[title="הבא"]';
+                const nextBtn = await target.$(nextBtnSelector);
+                
+                if (nextBtn && await nextBtn.isVisible()) {
+                    console.log(`➡️ נמצא כפתור 'הבא', עובר לדף ${pageNum + 1}...`);
+                    await nextBtn.scrollIntoViewIfNeeded(); // גלילה לכפתור כדי שיהיה ניתן ללחוץ
                     await nextBtn.click();
-                    await page.waitForTimeout(6000); 
+                    await page.waitForTimeout(8000); // זמן טעינה ארוך יותר בין דפים
                     pageNum++;
                 } else {
+                    console.log("🏁 לא נמצאו דפים נוספים בעיר זו.");
                     hasNextPage = false;
                 }
             }
