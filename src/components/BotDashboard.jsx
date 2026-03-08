@@ -50,14 +50,26 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
             
             {isOpen && (
                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 flex flex-col">
-                    <div className="p-2 border-b border-gray-100 bg-gray-50 rounded-t-lg">
+                    <div className="p-2 border-b border-gray-100 bg-gray-50 rounded-t-lg flex items-center justify-between gap-2">
                         <input 
                             type="text" 
-                            className="w-full px-3 py-2 rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 text-sm"
+                            className="flex-1 px-3 py-2 rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 text-sm"
                             placeholder="חפש וסנן..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
+                        {selected.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onChange([]);
+                                }}
+                                className="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1.5 rounded transition-colors whitespace-nowrap"
+                            >
+                                נקה הכל
+                            </button>
+                        )}
                     </div>
                     <div className="overflow-y-auto p-1">
                         {filteredOptions.length > 0 ? filteredOptions.map(option => {

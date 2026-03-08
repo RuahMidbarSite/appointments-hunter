@@ -217,7 +217,8 @@ async function runClalit(page) {
                 for (const item of rawDataFromPage) {
                     console.log(`* קורא כרטיסייה: שם: [${item.docNameRaw.trim()}], תאריך: [${item.dateTextRaw.trim()}]`);
                     
-                    const match = item.dateTextRaw.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+                    // תמיכה בפורמט תאריך עם נקודות (כמו 29.06.2026) או סלאשים (29/06/2026)
+                    const match = item.dateTextRaw.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
                     
                     if (!match) {
                         console.log(`   -> דילגתי: לא הצלחתי למצוא מבנה של תאריך מלא (DD/MM/YYYY) בטקסט הזה.`);
