@@ -1,8 +1,13 @@
 {
   "userId": "029280484",
-  "city": "הרצליה",
+  "userCode": "WL13044",
+  "password": "Ruah816#",
+  "familyMember": "אניגמה דיי",
+  "selectedCities": [
+    "הרצליה"
+  ],
+  "selectedDoctors": [],
   "selectedGroup": "32",
   "selectedSpecialization": "32",
-  "startDate": "",
   "endDate": ""
 }

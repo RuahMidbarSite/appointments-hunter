@@ -25,55 +25,91 @@ async function runClalit(page) {
     // טעינת ההגדרות שנשמרו מהדשבורד
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
     console.log("--- מתחיל סריקה עבור כללית (מצב Stealth פעיל) ---");
-    await page.goto('https://e-services.clalit.co.il/onlineweb/general/login.aspx');
+    await page.goto('https://e-services.clalit.co.il/onlineweb/general/login.aspx', { waitUntil: 'domcontentloaded' });
 
   try {
-        // 1. לחיצה על לשונית ה-SMS (הסלקטור שעבד לך קודם)
-        const exactSmsBtnSelector = '#ctl00_cphBody__loginView_btnSendSMS';
-        await page.waitForSelector(exactSmsBtnSelector, { state: 'visible', timeout: 30000 });
-        console.log("👆 עובר ללשונית 'קוד חד-פעמי לנייד'...");
-        await page.click(exactSmsBtnSelector);
-        
-        await page.waitForTimeout(2000);
+      // 1. מעבר ללשונית "קוד משתמש וסיסמה" עם תיקון גלילה ממרכז
+        const passTabBtn = '#ctl00_cphBody__loginView_btnPassword';
+        console.log("👆 עובר ללשונית 'קוד משתמש וסיסמה'...");
+        try {
+            await page.waitForSelector(passTabBtn, { state: 'visible', timeout: 15000 });
+            await page.$eval(passTabBtn, (el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+            // הקיצוץ: המתנה מינימלית בלבד לפני הלחיצה
+            await page.waitForTimeout(200); 
+            await page.click(passTabBtn);
+            // הקיצוץ: ביטול ההמתנה של ה-2 שניות. פליירייט ימתין אוטומטית לשדה בהמשך הקוד
+            await page.waitForTimeout(300); 
+        } catch (err) {
+            console.log("⚠️ לא הצלחתי ללחוץ על הלשונית באמצעות ID, מנסה להמשיך להזנה...");
+        }
+        // 2. הגדרת סלקטורים לפי ה-HTML המדויק ששלחת מהקונסול
+        const idField = '#ctl00_cphBody__loginView_tbUserId';
+        const codeField = '#ctl00_cphBody__loginView_tbUserName';
+        const passField = '#ctl00_cphBody__loginView_tbPassword';
 
-        // 2. הזנת תעודת הזהות מהדשבורד (שימוש בסלקטור tbUserId שעבד לך קודם)
-        const userIdSelector = '#ctl00_cphBody__loginView_tbUserId';
-        await page.waitForSelector(userIdSelector, { state: 'visible', timeout: 30000 });
+        console.log("⏳ ממתין להופעת שדות ההזנה...");
+        await page.waitForSelector(idField, { state: 'visible', timeout: 10000 });
 
-        // המרה ודאית לטקסט (כדי שיפעל בדיוק כמו המחרוזת '029280484' שעבדה קודם)
         const idToType = String(config.userId || '');
+        const codeToType = String(config.userCode || '');
+        const passToType = String(config.password || '');
 
-        console.log(`⌨️ מזין תעודת זהות: ${idToType}`);
+        console.log(`⌨️ מזין נתוני התחברות (ת"ז: ${idToType.substring(0,3)}***)...`);
         
-        // החזרנו למהירות 150 שעבדה לך בצורה חלקה בקוד המקורי
-        await page.type(userIdSelector, idToType, { delay: 150 }); 
-        
-        await page.waitForTimeout(1500); // המתנה קטנה לפני מעבר לקפצ'ה
-        
-        console.log("⏳ ממתין לקוד SMS...");
-        
-        const captchaEl = await page.waitForSelector('img[id*="Captcha"]', { state: 'visible', timeout: 15000 });
-        const captchaImgPath = 'captcha_temp.png';
-        await captchaEl.screenshot({ path: captchaImgPath });
-        
-        const solvedText = await solveCaptcha(captchaImgPath);
-        if (solvedText) {
-            console.log(`⌨️ מזין קפצ'ה: ${solvedText}`);
-            await page.type('#ctl00_cphBody__loginView_tbCaptchaLogin', solvedText, { delay: 200 });
-            await page.waitForTimeout(1200); // המתנה לפני לחיצה
+        // פונקציית עזר להקלדה אנושית - שומרת על קצב ההקלדה אך מקצרת המתנות ריקות
+        const typeHumanLike = async (selector, text) => {
+            await page.click(selector, { clickCount: 3 });
+            await page.keyboard.press('Backspace');
+            await page.waitForTimeout(50); // קוצר משמעותית: המתנה מזערית רק לאיפוס השדה
+            
+            for (const char of text) {
+                await page.keyboard.insertText(char);
+                // קצב ההקלדה האנושי והטוב נשמר בדיוק כפי שהיה
+                await page.waitForTimeout(Math.floor(Math.random() * 150) + 150);
+            }
+        };
+
+        console.log("⌨️ מתחיל הזנה אנושית מיד...");
+
+        // 1. הזנה רציפה - השהיות המעבר בין השדות קוצצו
+        await typeHumanLike(idField, idToType);
+        await page.waitForTimeout(100); // מעבר כמעט מיידי לשדה הבא
+        await typeHumanLike(codeField, codeToType);
+        await page.waitForTimeout(100); 
+        await typeHumanLike(passField, passToType);
+
+        // 2. לחיצה על כפתור הכניסה
+        const loginBtnSelector = '#ctl00_cphBody__loginView_btnSend';
+        console.log("🚀 לוחץ על כפתור הכניסה...");
+        try {
+            await page.waitForSelector(loginBtnSelector, { state: 'visible', timeout: 15000 });
+            await page.$eval(loginBtnSelector, (el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+            await page.waitForTimeout(200); 
+            await page.click(loginBtnSelector);
+        } catch (err) {
+            console.error("❌ לא הצלחתי ללחוץ על כפתור הכניסה:", err.message);
+            await page.click('span:has-text("כניסה")');
         }
 
-        const submitBtnId = '#ctl00_cphBody__loginView_lblSendOTP';
-        // שימוש בלחיצה רגילה במקום evaluate כדי לדמות עכבר
-        await page.click(submitBtnId);
-
         console.log("--------------------------------------------------");
-        console.log("אנא הזן את קוד ה-SMS בתיבה שנפתחה ולחץ כניסה.");
-        const daughterSelector = '#ctl00_ctl00_cphTopMenuRight_FamilySliderControl21_rptPersonList_ctl01_FirstNameTxt';
-        await page.waitForSelector(daughterSelector, { timeout: 300000 });
+        console.log("ממתין לסיום תהליך ההתחברות...");
+        // ממתין שההתחברות תצליח והמסך הראשי ייטען (לפי כפתור שירותי האון-ליין)
+        await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
         
-        await page.click(daughterSelector);
-        await page.waitForTimeout(6000); 
+        // בדיקה אם הוגדר בן משפחה בדשבורד - תוקן לשם המשתנה הנכון
+        if (config.familyMember && config.familyMember.trim() !== '') {
+            console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
+            try {
+                // חיפוש ולחיצה על השם המדויק שהוזן בדשבורד
+                const memberText = config.familyMember.trim();
+                await page.waitForSelector(`text="${memberText}"`, { state: 'visible', timeout: 15000 });
+                await page.click(`text="${memberText}"`);
+                console.log(`✅ עברתי בהצלחה לתיק של ${memberText}`);
+                await page.waitForTimeout(6000); // המתנה לטעינת התיק
+            } catch (err) {
+                console.log(`⚠️ לא הצלחתי למצוא או ללחוץ על השם '${config.familyMember}'. ממשיך בתיק הראשי.`);
+            }
+        }
 
         await page.click('text="שירותי האון־ליין"');
         await page.waitForTimeout(2500);
@@ -108,7 +144,15 @@ async function runClalit(page) {
 
         // --- לוגיקת החיפוש המעודכנת ---
         const sentInThisRun = new Set(); 
-        const citiesToSearch = [config.city]; // חיפוש לפי העיר שנבחרה בדשבורד
+// משיכת מערך הערים מהדשבורד או שימוש בברירת מחדל
+        const citiesToSearch = (config.selectedCities && config.selectedCities.length > 0) 
+            ? config.selectedCities 
+            : ['הרצליה'];
+            
+        // משיכת מערך הרופאים מהדשבורד (אם ריק - יחפש את כולם)
+        const activeDoctorsFilter = (config.selectedDoctors && config.selectedDoctors.length > 0)
+            ? config.selectedDoctors
+            : []; 
 
         for (const city of citiesToSearch) {
             console.log(`\n===================================`);
@@ -118,29 +162,28 @@ async function runClalit(page) {
             await target.click(cityInput);
             await target.evaluate((selector) => document.querySelector(selector).value = '', cityInput);
             console.log(`🔎 מזין '${city}'...`);
-await target.type(cityInput, city, { delay: 250 });
+            await target.type(cityInput, city, { delay: 250 });
 
-// המתנה להופעת התפריט
-await target.waitForSelector('li.ui-menu-item', { state: 'visible', timeout: 15000 });
-await page.waitForTimeout(1000);
+            // המתנה להופעת התפריט
+            await target.waitForSelector('li.ui-menu-item', { state: 'visible', timeout: 15000 });
+            await page.waitForTimeout(1000);
 
-// בחירה מדויקת מתוך הרשימה לפי טקסט
-const clicked = await target.evaluate((cityName) => {
-    const items = Array.from(document.querySelectorAll('li.ui-menu-item'));
-    const match = items.find(item => item.innerText.trim() === cityName);
-    if (match) {
-        match.click();
-        return true;
-    }
-    return false;
-}, city);
+            // בחירה מדויקת מתוך הרשימה לפי טקסט
+            const clicked = await target.evaluate((cityName) => {
+                const items = Array.from(document.querySelectorAll('li.ui-menu-item'));
+                const match = items.find(item => item.innerText.trim() === cityName);
+                if (match) {
+                    match.click();
+                    return true;
+                }
+                return false;
+            }, city);
 
-if (!clicked) {
-    console.log(`⚠️ לא נמצאה התאמה מדויקת ל-'${city}' ברשימה, מנסה ללחוץ Enter כברירת מחדל.`);
-    await page.keyboard.press('Enter');
-}
+            if (!clicked) {
+                console.log(`⚠️ לא נמצאה התאמה מדויקת ל-'${city}' ברשימה, מנסה ללחוץ Enter כברירת מחדל.`);
+                await page.keyboard.press('Enter');
+            }
 
-await page.waitForTimeout(2000);
             await page.waitForTimeout(2000);
 
             await target.click('#searchBtnSpec');
@@ -152,21 +195,54 @@ await page.waitForTimeout(2000);
             while (hasNextPage) {
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} ב${city}...`);
 
-                const foundInPage = await target.evaluate((whitelist, start, end) => {
-                    return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
-                        const docName = card.querySelector('.doctorName')?.innerText || '';
-                        const dateText = card.querySelector('.visitDateTime')?.innerText || '';
-                        
-                        const match = dateText.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-                        if (!match) return null;
-                        
-                        const isoDate = `${match[3]}-${match[2]}-${match[1]}`;
-                        const inRange = (!start || isoDate >= start) && (!end || isoDate <= end);
-                        const isPreferred = whitelist.some(name => docName.includes(name));
+               // משיכת מערך הרופאים מהדשבורד לצורך השוואה
+                const activeDoctorsFilter = (config.selectedDoctors && config.selectedDoctors.length > 0)
+                    ? config.selectedDoctors
+                    : []; 
 
-                        return (isPreferred && inRange) ? { doctor: docName, dateStr: dateText } : null;
-                    }).filter(res => res !== null);
-                }, preferredDoctors, config.startDate, config.endDate);
+                // שולפים את כל המידע הגולמי מתוך הדף ללא שום סינון כדי להדפיס לטרמינל
+                const rawDataFromPage = await target.evaluate(() => {
+                    return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
+                        return {
+                            docNameRaw: card.querySelector('.doctorName')?.innerText || 'לא נמצא שם',
+                            dateTextRaw: card.querySelector('.visitDateTime')?.innerText || 'לא נמצא תאריך'
+                        };
+                    });
+                });
+
+                console.log("\n--- תחילת הדפסת דיבוג: מה הבוט רואה כרגע בדף ---");
+                const foundInPage = [];
+                
+                // עוברים על כל רופא שהבוט ראה, מדפיסים אותו, ומפעילים את הסינון שלנו מחוץ לדפדפן
+                for (const item of rawDataFromPage) {
+                    console.log(`* קורא כרטיסייה: שם: [${item.docNameRaw.trim()}], תאריך: [${item.dateTextRaw.trim()}]`);
+                    
+                    const match = item.dateTextRaw.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+                    
+                    if (!match) {
+                        console.log(`   -> דילגתי: לא הצלחתי למצוא מבנה של תאריך מלא (DD/MM/YYYY) בטקסט הזה.`);
+                        continue;
+                    }
+                    
+                    const isoDate = `${match[3]}-${match[2]}-${match[1]}`;
+                    const inRange = !config.endDate || (isoDate <= config.endDate);
+                    
+                    if (!inRange) {
+                        console.log(`   -> דילגתי: התאריך ${isoDate} מאוחר מתאריך היעד ${config.endDate}.`);
+                        continue;
+                    }
+                    
+                    const isPreferred = activeDoctorsFilter.length === 0 || activeDoctorsFilter.some(name => item.docNameRaw.includes(name));
+                    
+                    if (!isPreferred) {
+                        console.log(`   -> דילגתי: הרופא אינו ברשימת המועדפים שהוגדרה.`);
+                        continue;
+                    }
+
+                    console.log(`   -> ✅ התור עבר את כל הסינונים וישלח למייל!`);
+                    foundInPage.push({ doctor: item.docNameRaw.trim(), dateStr: item.dateTextRaw.trim() });
+                }
+                console.log("--- סוף הדפסת דיבוג ---\n");
 
                 for (const appt of foundInPage) {
                     const key = `${appt.doctor}-${appt.dateStr}`;
