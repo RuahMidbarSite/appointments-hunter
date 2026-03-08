@@ -3,8 +3,7 @@ import { CLALIT_GROUPS, CLALIT_SPECIALIZATIONS } from '../scrapers/health/consta
 import { AVAILABLE_CITIES } from '../scrapers/health/constants/cities';
 import { AVAILABLE_DOCTORS } from '../scrapers/health/constants/doctors_display';
 
-// קומפוננטה חכמה שתומכת גם ברשימת טקסטים וגם ברשימת אובייקטים
-const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObject = false }) => {
+const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObject = false, focusClass }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const dropdownRef = useRef(null);
@@ -42,18 +41,21 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
     return (
         <div className="relative" ref={dropdownRef}>
             <div 
-                className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 cursor-pointer text-gray-700 focus:bg-white focus:ring-2 focus:ring-purple-500 transition-all min-h-[48px] flex items-center"
+                tabIndex={0}
+                /* הוסר font-bold, נשאר text-xl */
+                className={`w-full px-4 py-1.5 rounded-xl bg-white border border-gray-200 cursor-pointer text-gray-800 text-xl font-medium transition-all min-h-[40px] flex items-center shadow-sm outline-none focus:ring-2 ${focusClass}`}
                 onClick={() => setIsOpen(!isOpen)}
+                onKeyDown={(e) => e.key === 'Enter' && setIsOpen(!isOpen)}
             >
-                <div className="truncate">{getSelectedLabels()}</div>
+                <div className="truncate font-medium">{getSelectedLabels()}</div>
             </div>
             
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 flex flex-col">
-                    <div className="p-2 border-b border-gray-100 bg-gray-50 rounded-t-lg flex items-center justify-between gap-2">
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-60 flex flex-col">
+                    <div className="p-3 border-b border-gray-100 bg-gray-50 rounded-t-xl flex items-center justify-between gap-2">
                         <input 
                             type="text" 
-                            className="flex-1 px-3 py-2 rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 text-sm"
+                            className={`flex-1 px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 text-base shadow-inner text-gray-800 ${focusClass.replace('focus:ring-2', '')}`}
                             placeholder="חפש וסנן..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -65,9 +67,9 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
                                     e.stopPropagation();
                                     onChange([]);
                                 }}
-                                className="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1.5 rounded transition-colors whitespace-nowrap"
+                                className="text-sm font-bold bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg transition-colors whitespace-nowrap shadow-sm"
                             >
-                                נקה הכל
+                                נקה
                             </button>
                         )}
                     </div>
@@ -76,18 +78,18 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
                             const value = isObject ? option.id : option;
                             const label = isObject ? option.label : option;
                             return (
-                                <label key={value} className="flex items-center px-3 py-2 hover:bg-purple-50 rounded cursor-pointer transition-colors">
+                                <label key={value} className="flex items-center px-4 py-3 hover:bg-gray-100 rounded-lg cursor-pointer transition-colors">
                                     <input 
                                         type="checkbox" 
-                                        className="ml-3 accent-purple-600 w-4 h-4"
+                                        className="ml-3 w-5 h-5 cursor-pointer"
                                         checked={selected.includes(value)}
                                         onChange={() => toggleOption(option)}
                                     />
-                                    <span className="text-sm text-gray-700">{label}</span>
+                                    <span className="text-base text-gray-800 font-medium">{label}</span>
                                 </label>
                             );
                         }) : (
-                            <div className="p-3 text-sm text-gray-500 text-center">לא נמצאו תוצאות לחיפוש</div>
+                            <div className="p-4 text-base text-gray-500 text-center font-medium">לא נמצאו תוצאות</div>
                         )}
                     </div>
                 </div>
@@ -106,12 +108,17 @@ export default function BotDashboard() {
         selectedDoctors: [], 
         selectedGroup: '32',
         selectedSpecialization: '32',
-        endDate: ''
+        endDate: '',
+        runInLoop: false,
+        loopFrequency: 15
     });
 
-    // משיכת נתונים מה-ENV בטעינת הדף (לצרכי פיתוח)
+    const [botLiveStatus, setBotLiveStatus] = useState('idle');
+    const [status, setStatus] = useState('idle');
+    const [showPassword, setShowPassword] = useState(false);
+
     useEffect(() => {
-        const fetchEnvData = async () => {
+        const fetchBotData = async () => {
             try {
                 const response = await fetch('/api/save-config');
                 if (response.ok) {
@@ -121,18 +128,26 @@ export default function BotDashboard() {
                         userId: data.userId || prev.userId,
                         userCode: data.userCode || prev.userCode,
                         password: data.password || prev.password,
-                        familyMember: data.familyMember || prev.familyMember
+                        familyMember: data.familyMember || prev.familyMember,
+                        selectedCities: data.selectedCities || prev.selectedCities,
+                        selectedDoctors: data.selectedDoctors || prev.selectedDoctors,
+                        selectedGroup: data.selectedGroup || prev.selectedGroup,
+                        selectedSpecialization: data.selectedSpecialization || prev.selectedSpecialization,
+                        endDate: data.endDate || prev.endDate,
+                        runInLoop: data.runInLoop !== undefined ? data.runInLoop : prev.runInLoop,
+                        loopFrequency: data.loopFrequency || prev.loopFrequency
                     }));
+                    setBotLiveStatus(data.botStatus || 'idle');
                 }
             } catch (error) {
-                console.error("שגיאה במשיכת נתוני ENV:", error);
+                console.error("שגיאה בסנכרון מול השרת:", error);
             }
         };
-        fetchEnvData();
+        fetchBotData(); 
+        const interval = setInterval(fetchBotData, 3000); 
+        return () => clearInterval(interval);
     }, []);
 
-    const [status, setStatus] = useState('idle');
-const [showPassword, setShowPassword] = useState(false);
     const handleChange = (e) => {
         const { name, value } = e.target;
         setConfig(prev => ({ ...prev, [name]: value }));
@@ -149,37 +164,34 @@ const [showPassword, setShowPassword] = useState(false);
         setStatus('idle');
     };
 
-    const handleSearch = async () => {
+    const handleRun = async (isSingle = false) => {
         setStatus('loading');
+        const updatedConfig = { ...config, runInLoop: !isSingle };
         try {
             const response = await fetch('/api/save-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                body: JSON.stringify(updatedConfig)
             });
             if (response.ok) {
-                // הסטטוס נשאר success כדי שהכפתור יישאר ירוק בזמן הריצה
                 setStatus('success');
+                setTimeout(() => setStatus('idle'), 3000);
             } else {
-                setStatus('idle');
-                alert('השרת החזיר שגיאה בהפעלת הבוט');
+                setStatus('error');
             }
         } catch (error) {
-            console.error('שגיאה:', error);
-            setStatus('idle');
-            alert('שגיאה בתקשורת עם השרת');
+            setStatus('error');
         }
     };
-const handleStop = async () => {
+
+    const handleStop = async () => {
         try {
             const response = await fetch('/api/save-config', { 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'stop' }) 
             });
-            
             if (response.ok) {
-                // החזרת הסטטוס ל-idle משנה את צבע כפתור החיפוש חזרה לסגול
                 setStatus('idle');
                 alert('הבוט הופסק בהצלחה 🛑');
             } else {
@@ -190,6 +202,7 @@ const handleStop = async () => {
             alert('שגיאה בתקשורת עם השרת');
         }
     };
+
     const renderOptions = (data) => {
         if (!data) return null;
         if (Array.isArray(data)) {
@@ -205,166 +218,132 @@ const handleStop = async () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden border border-gray-100">
-                <div className="bg-gradient-to-r from-purple-800 to-purple-600 p-6 text-white text-center">
-                    <h1 className="text-3xl font-bold tracking-tight mb-1">צייד התורים</h1>
-                    <p className="text-purple-100 text-sm">מערכת סריקה חכמה לכללית</p>
+        <div className="flex justify-center pt-0 px-2 md:px-4 pb-4 bg-gray-100 font-sans items-start overflow-x-hidden">
+            <div className="bg-white rounded-b-3xl shadow-2xl w-full max-w-[98%] h-auto border border-gray-200 mt-0">
+                
+                {/* Header: כותרת, לוגו וסטטוס */}
+                <div className="bg-white border-b border-gray-100 p-3 md:p-4 flex flex-row items-center justify-between gap-4">
+                    <div className="text-right">
+                        <h1 className="text-4xl md:text-5xl font-black text-[#005a4c] tracking-tight leading-none mb-1">צייד התורים</h1>
+                        <p className="text-[#00a896] text-lg md:text-xl font-medium">סריקה חכמה ללקוחות כללית</p>
+                    </div>
+
+                    <div className="flex items-center gap-6">
+                        <div className="bg-[#f0f9f8] border border-[#d1edea] px-4 py-2 rounded-2xl flex items-center gap-3 shadow-inner">
+                            <div className={`w-4 h-4 rounded-full ${botLiveStatus === 'active' ? 'bg-[#00a896] animate-pulse shadow-[0_0_8px_rgba(0,168,150,0.4)]' : 'bg-gray-300'}`}></div>
+                            <span className="text-lg font-bold text-[#005a4c] hidden md:inline">
+                                {botLiveStatus === 'active' ? 'הבוט פעיל' : 'הבוט בהמתנה'}
+                            </span>
+                        </div>
+                        <img src="/clalit-logo.png" alt="כללית" className="h-12 md:h-16 object-contain" />
+                    </div>
                 </div>
 
-                <div className="p-8 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        
-                     {/* 1. תעודת זהות */}
-                        <div className="space-y-1">
-                            <label className="block text-sm font-semibold text-gray-700">תעודת זהות</label>
-                        <input 
-    type="text" 
-    name="userId" 
-    autoComplete="no-fill-id"
-    value={config.userId} 
-    onChange={handleChange} 
-    placeholder="השאר ריק לשימוש ב-ENV"
-    className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-purple-500 transition-all outline-none"
-/>
-                        </div>
-
-                        {/* 2. קוד משתמש */}
-                        <div className="space-y-1">
-                            <label className="block text-sm font-semibold text-gray-700">קוד משתמש</label>
-                            <input 
-    type="text" 
-    name="userCode" 
-    autoComplete="no-fill-code"
-    value={config.userCode} 
-    onChange={handleChange} 
-    placeholder="השאר ריק לשימוש ב-ENV"
-    className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-purple-500 transition-all outline-none"
-/>
-                        </div>
-
-                        {/* 3. סיסמה עם כפתור חשיפה */}
-                        <div className="space-y-1 relative">
-                            <label className="block text-sm font-semibold text-gray-700">סיסמה</label>
+                <div className="p-3 md:p-4 flex flex-col gap-3 bg-[#f8fbfa]">
+                    
+                    {/* סקציה 1: פרטי התחברות */}
+                    <div className="bg-[#e1f0f9] border border-[#b8dcf2] rounded-2xl p-3 md:p-4 shadow-sm min-h-[110px] flex flex-col justify-center">
+                        <h2 className="text-3xl md:text-4xl font-black text-[#005a4c] mb-2 flex items-center gap-3">
+                            <span className="w-1.5 h-6 bg-[#007cc3] rounded-full inline-block"></span>
+                            פרטי התחברות
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1">
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">תעודת זהות</label>
+                                <input type="text" name="userId" value={config.userId} onChange={handleChange} placeholder="ENV או הזן כאן" 
+                                    className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#007cc3] transition-all outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">קוד משתמש</label>
+                                <input type="text" name="userCode" value={config.userCode} onChange={handleChange} placeholder="ENV או הזן כאן" 
+                                    className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#007cc3] transition-all outline-none" />
+                            </div>
                             <div className="relative">
-                                <input 
-                                    type={showPassword ? "text" : "password"} 
-                                    name="password" 
-                                    value={config.password} 
-                                    onChange={handleChange} 
-                                    placeholder="השאר ריק לשימוש ב-ENV"
-                                    className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-purple-500 transition-all outline-none"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-purple-600 focus:outline-none"
-                                >
-                                    {showPassword ? "🙈" : "👁️"}
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">סיסמה</label>
+                                <div className="relative">
+                                    <input type={showPassword ? "text" : "password"} name="password" value={config.password} onChange={handleChange} placeholder="ENV או הזן כאן" 
+                                        className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#007cc3] transition-all outline-none" />
+                                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#007cc3] text-xl">
+                                        {showPassword ? "🙈" : "👁️"}
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">שם בן משפחה</label>
+                                <input type="text" name="familyMember" value={config.familyMember} onChange={handleChange} placeholder="אופציונלי" 
+                                    className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#007cc3] transition-all outline-none" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* סקציה 2: הגדרות חיפוש */}
+                    <div className="bg-[#e6f6f5] border border-[#c1edea] rounded-2xl p-3 md:p-4 shadow-sm min-h-[110px] flex flex-col justify-center">
+                        <h2 className="text-3xl md:text-4xl font-black text-[#005a4c] mb-2 flex items-center gap-3">
+                            <span className="w-1.5 h-6 bg-[#00a896] rounded-full inline-block"></span>
+                            הגדרות חיפוש
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1">
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">סוג שירות</label>
+                                <select name="selectedGroup" value={config.selectedGroup} onChange={handleChange} 
+                                    className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#00a896] outline-none cursor-pointer">
+                                    {renderOptions(CLALIT_GROUPS)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">התמחות</label>
+                                <select name="selectedSpecialization" value={config.selectedSpecialization} onChange={handleChange} 
+                                    className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#00a896] outline-none cursor-pointer">
+                                    {CLALIT_SPECIALIZATIONS[config.selectedGroup] ? renderOptions(CLALIT_SPECIALIZATIONS[config.selectedGroup]) : <option value="">בחר קבוצה</option>}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">ערים לסריקה</label>
+                                <MultiSelectDropdown options={AVAILABLE_CITIES} selected={config.selectedCities} onChange={handleCitiesChange} placeholder="בחר ערים..." focusClass="focus:ring-[#00a896]" />
+                            </div>
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">רופאים מועדפים</label>
+                                <MultiSelectDropdown options={AVAILABLE_DOCTORS} selected={config.selectedDoctors} onChange={handleDoctorsChange} placeholder="בחר רופאים..." isObject={true} focusClass="focus:ring-[#00a896]" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* סקציה 3: תזמון והפעלה */}
+                    <div className="bg-[#f5ecf5] border border-[#ebdaeb] rounded-2xl p-3 md:p-4 shadow-sm min-h-[110px] flex flex-col justify-center">
+                        <h2 className="text-3xl md:text-4xl font-black text-[#005a4c] mb-2 flex items-center gap-3">
+                            <span className="w-1.5 h-6 bg-[#8c4391] rounded-full inline-block"></span>
+                            תזמון והפעלה
+                        </h2>
+                        <div className="w-full grid grid-cols-1 md:grid-cols-[1.5fr,1.5fr,auto] gap-x-6 gap-y-1 items-end">
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">תאריך יעד אחרון</label>
+                                <input type="date" name="endDate" value={config.endDate} onChange={handleChange} 
+                                    className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8c4391] outline-none cursor-pointer" />
+                            </div>
+                            <div>
+                                <label className="block text-lg font-bold text-gray-700 mb-0.5">תדירות סריקה</label>
+                                <select value={config.loopFrequency} onChange={(e) => setConfig(prev => ({ ...prev, loopFrequency: Number(e.target.value) }))} 
+                                    className="w-full px-4 py-1.5 text-xl font-medium bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#8c4391] outline-none cursor-pointer">
+                                    <option value={15}>כל 15 דקות</option>
+                                    <option value={30}>כל 30 דקות</option>
+                                    <option value={45}>כל 45 דקות</option>
+                                    <option value={60}>כל שעה</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-row gap-2 mt-0">
+                                <button onClick={() => handleRun(false)} disabled={status === 'loading' || botLiveStatus === 'active'} className={`px-5 py-2 rounded-xl font-bold text-lg text-white transition-all transform hover:-translate-y-0.5 whitespace-nowrap ${botLiveStatus === 'active' ? 'bg-gray-300' : 'bg-[#00a896] hover:bg-[#008f80]'}`}>
+                                    לולאה
+                                </button>
+                                <button onClick={() => handleRun(true)} disabled={status === 'loading' || botLiveStatus === 'active'} className={`px-5 py-2 rounded-xl font-bold text-lg text-white transition-all transform hover:-translate-y-0.5 whitespace-nowrap ${botLiveStatus === 'active' ? 'bg-gray-300' : 'bg-[#007cc3] hover:bg-[#0066a1]'}`}>
+                                    בדיקה
+                                </button>
+                                <button onClick={handleStop} className="px-5 py-2 bg-[#e11d48] hover:bg-[#be123c] text-white font-bold text-lg rounded-xl transition-all transform hover:-translate-y-0.5 whitespace-nowrap">
+                                    עצור
                                 </button>
                             </div>
                         </div>
-
-                        {/* 2. בן/בת משפחה */}
-                        <div className="space-y-1">
-                            <label className="block text-sm font-semibold text-gray-700">שם בן/בת משפחה (אופציונלי)</label>
-                            <input 
-                                type="text" 
-                                name="familyMember" 
-                                value={config.familyMember} 
-                                onChange={handleChange}
-                                placeholder="למשל: יובל (השאר ריק עבורך)"
-                                className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
-                            />
-                        </div>
-
-                        {/* 3. סוג שירות */}
-                        <div className="space-y-1">
-                            <label className="block text-sm font-semibold text-gray-700">סוג שירות</label>
-                            <select 
-                                name="selectedGroup" 
-                                value={config.selectedGroup} 
-                                onChange={handleChange}
-                                className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
-                            >
-                                {renderOptions(CLALIT_GROUPS)}
-                            </select>
-                        </div>
-
-                        {/* 4. התמחות */}
-                        <div className="space-y-1">
-                            <label className="block text-sm font-semibold text-gray-700">התמחות</label>
-                            <select 
-                                name="selectedSpecialization" 
-                                value={config.selectedSpecialization} 
-                                onChange={handleChange}
-                                className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
-                            >
-                                {CLALIT_SPECIALIZATIONS[config.selectedGroup] ? 
-                                    renderOptions(CLALIT_SPECIALIZATIONS[config.selectedGroup]) : 
-                                    <option value="">בחר קבוצה קודם</option>
-                                }
-                            </select>
-                        </div>
-
-                        {/* 5. ערים לסריקה */}
-                        <div className="space-y-1">
-                            <label className="block text-sm font-semibold text-gray-700">ערים לסריקה</label>
-                            <MultiSelectDropdown 
-                                options={AVAILABLE_CITIES} 
-                                selected={config.selectedCities} 
-                                onChange={handleCitiesChange} 
-                                placeholder="בחר ערים מהרשימה..." 
-                            />
-                        </div>
-
-                        {/* 6. רופאים מועדפים */}
-                        <div className="space-y-1">
-                            <label className="block text-sm font-semibold text-gray-700">רופאים מועדפים (אופציונלי)</label>
-                            <MultiSelectDropdown 
-                                options={AVAILABLE_DOCTORS} 
-                                selected={config.selectedDoctors} 
-                                onChange={handleDoctorsChange} 
-                                placeholder="בחר רופאים (או השאר ריק לכולם)..." 
-                                isObject={true}
-                            />
-                        </div>
-
-                        {/* 7. תאריך יעד אחרון (רוחב מלא) */}
-                        <div className="space-y-1 md:col-span-2">
-                            <label className="block text-sm font-semibold text-gray-700">תאריך יעד אחרון (אופציונלי)</label>
-                            <input 
-                                type="date" 
-                                name="endDate" 
-                                value={config.endDate} 
-                                onChange={handleChange}
-                                className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
-                            />
-                        </div>
                     </div>
 
-                    <div className="pt-4 mt-6 border-t border-gray-100 flex gap-4">
-                        <button 
-                            onClick={handleSearch} 
-                            disabled={status === 'loading'}
-                            className={`flex-1 py-4 rounded-xl font-bold text-lg text-white shadow-lg transition-all transform hover:-translate-y-0.5
-                                ${status === 'loading' ? 'bg-gray-400 cursor-not-allowed' : 
-                                  status === 'success' ? 'bg-green-500 hover:bg-green-600 shadow-green-200' : 
-                                  'bg-purple-600 hover:bg-purple-700 shadow-purple-200'}
-                            `}
-                        >
-                            {status === 'loading' ? 'מפעיל בוט...' : 
-                             status === 'success' ? 'הבוט החל לסרוק! 🚀' : 
-                             'חפש תור עכשיו'}
-                        </button>
-
-                        <button 
-                            onClick={handleStop}
-                            className="w-1/3 py-4 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-200 transition-all transform hover:-translate-y-0.5"
-                        >
-                            עצור בוט
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>

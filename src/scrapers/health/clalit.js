@@ -2,6 +2,10 @@ const { solveCaptcha } = require('../../services/captchaService');
 const nodemailer = require('nodemailer');
 const preferredDoctors = require('./constants/doctors_whitelist');
 const fs = require('fs'); // נוסף כדי לאפשר קריאה של קובץ ה-config
+// ייבוא מנגנוני הלולאה והדיווח מהספרייה החדשה
+// ייבוא מנגנוני הלולאה, הדיווח והזיכרון (כולל בדיקת תאריך מוקדם)
+const { setBotStatus, waitMinutes, isBetterAppointment, updateMemory } = require('../../utils/scheduler/loopManager');
+const { createExecutionReport } = require('../../utils/scheduler/reportGenerator');
 
 const transporter = nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE,
@@ -22,8 +26,13 @@ async function sendEmailNotification(docName, city, dateStr) {
 }
 
 async function runClalit(page) {
-    // טעינת ההגדרות שנשמרו מהדשבורד
+   // עדכון הנורה ל"פעיל" מיד עם תחילת הפונקציה
+    setBotStatus('active');
+    
+    // טעינת ההגדרות
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+    const stats = { startTime: new Date() };
+
     console.log("--- מתחיל סריקה עבור כללית (מצב Stealth פעיל) ---");
     await page.goto('https://e-services.clalit.co.il/onlineweb/general/login.aspx', { waitUntil: 'domcontentloaded' });
 
@@ -188,17 +197,34 @@ async function runClalit(page) {
 
             await target.click('#searchBtnSpec');
             await page.waitForTimeout(8000); 
-
+// בדיקה אם קפצה הודעה שאין תורים פנויים
+            const noApptsMessage = await target.$('text="לא נמצאו תורים ביישוב או סביבה שבחרת"');
+            if (noApptsMessage && await noApptsMessage.isVisible()) {
+                console.log(`ℹ️ כללית מדווחת: אין תורים פנויים ב-${city}. סוגר את ההודעה (לוחץ על ה-X) ועובר הלאה...`);
+                try {
+                    // לחיצה על ה-X לפי המזהה המדויק ששלחת (id="CloseButton" או class="close")
+                    const closeBtn = await target.$('#CloseButton, a.close');
+                    if (closeBtn) {
+                        await closeBtn.click();
+                    } else {
+                        // גיבוי למקרה שהאלמנט חסום: כפיית לחיצה דרך הדפדפן
+                        await target.evaluate(() => {
+                            const btn = document.querySelector('#CloseButton') || document.querySelector('a.close');
+                            if (btn) btn.click();
+                        });
+                    }
+                    await page.waitForTimeout(1000); // המתנה קצרה להעלמות החלון
+                } catch (closeErr) {
+                    console.log("⚠️ שגיאה בלחיצה על סגירת המודל, מנסה להמשיך לדף הבא...");
+                }
+                continue; // מדלג על הסריקה בעיר הזו ועובר לעיר הבאה במערך
+            }
             let hasNextPage = true;
             let pageNum = 1;
 
             while (hasNextPage) {
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} ב${city}...`);
-
-               // משיכת מערך הרופאים מהדשבורד לצורך השוואה
-                const activeDoctorsFilter = (config.selectedDoctors && config.selectedDoctors.length > 0)
-                    ? config.selectedDoctors
-                    : []; 
+                // הסרנו את הגדרת activeDoctorsFilter מכאן כי היא כבר הוגדרה למעלה
 
                 // שולפים את כל המידע הגולמי מתוך הדף ללא שום סינון כדי להדפיס לטרמינל
                 const rawDataFromPage = await target.evaluate(() => {
@@ -249,11 +275,27 @@ async function runClalit(page) {
                     const key = `${appt.doctor}-${appt.dateStr}`;
                     if (!sentInThisRun.has(key)) {
                         try {
-                            await sendEmailNotification(appt.doctor, city, appt.dateStr);
-                            console.log(`🎉 נמצא תור! מייל נשלח עבור: ${appt.doctor}`);
+                            // בדיקה אם התור מוקדם יותר ממה שכבר נשלח בעבר (שימוש בקובץ sent_appointments.json)
+                            if (isBetterAppointment(appt.doctor, appt.dateStr)) {
+                                await sendEmailNotification(appt.doctor, city, appt.dateStr);
+                                
+                                // עדכון הזיכרון בתאריך החדש (המוקדם יותר)
+                                updateMemory(appt.doctor, appt.dateStr);
+
+                                const report = createExecutionReport(stats, {
+                                    familyMember: config.familyMember || 'ראשי',
+                                    specialization: config.selectedSpecialization || 'לא הוגדר',
+                                    city: city,
+                                    doctor: appt.doctor,
+                                    dateStr: appt.dateStr
+                                });
+                                console.log(report);
+                            } else {
+                                console.log(`   -> דילגתי על שליחת מייל: נמצא בזיכרון תור מוקדם יותר עבור ${appt.doctor}`);
+                            }
                             sentInThisRun.add(key);
                         } catch (mailErr) {
-                            console.error(`⚠️ שגיאה בשליחת מייל:`, mailErr.message);
+                            console.error(`⚠️ שגיאה בעיבוד התור לשליחה:`, mailErr.message);
                         }
                     }
                 }
@@ -275,10 +317,30 @@ async function runClalit(page) {
             }
         }
 
-        console.log(`\n✅ סריקת כל הערים והדפים הסתיימה!`);
+       console.log(`\n✅ סריקת כל הערים והדפים הסתיימה!`);
 
     } catch (error) {
         console.error("❌ שגיאה במהלך הבוט:", error.message);
+    } finally {
+        // כיבוי הנורה בדשבורד בסיום סבב הסריקה
+        setBotStatus('idle');
+
+        // בדיקה האם להפעיל סבב נוסף (לולאה) או לעצור
+        const configRefresh = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+        
+        if (configRefresh.runInLoop) {
+            const frequency = configRefresh.loopFrequency || 15;
+            console.log(`⏳ סבב הסתיים. ממתין ${frequency} דקות לסבב הבא (לפי הגדרת תדירות)...`);
+            
+            // המתנה חכמה שבודקת כל כמה שניות אם המשתמש כיבה את הלולאה
+            const continueLoop = await waitMinutes(frequency);
+            
+            if (continueLoop) {
+                console.log("🔄 מתחיל סבב סריקה חדש...");
+                return runClalit(page); // הרצה חוזרת של אותה פונקציה
+            }
+        }
+        console.log("🏁 הבוט סיים את עבודתו.");
     }
 }
 

@@ -4,10 +4,20 @@
   "password": "Ruah816#",
   "familyMember": "אניגמה דיי",
   "selectedCities": [
-    "הרצליה"
+    "הרצליה",
+    "תל אביב - יפו",
+    "פתח תקווה",
+    "ראשון לציון",
+    "נתניה",
+    "כפר סבא",
+    "רעננה",
+    "רמת השרון"
   ],
   "selectedDoctors": [],
   "selectedGroup": "32",
   "selectedSpecialization": "32",
-  "endDate": ""
+  "endDate": "",
+  "runInLoop": false,
+  "loopFrequency": 60,
+  "botStatus": "idle"
 }
