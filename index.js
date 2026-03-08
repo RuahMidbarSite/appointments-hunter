@@ -26,7 +26,10 @@ async function main() {
     try {
         await runClalit(page);
         console.log("-----------------------------------------");
-        console.log("הסריקה הסתיימה. הדפדפן יישאר פתוח לבדיקה.");
+        console.log("✅ הסריקה הסתיימה. הדפדפן יישאר פתוח כעת.");
+        
+        // מונע מהתהליך להסתיים ומלסגור את הדפדפן
+        await new Promise(() => {}); 
     } catch (error) {
         console.error("שגיאה קריטית:", error);
     }

@@ -198,26 +198,25 @@ async function runClalit(page) {
             await target.click('#searchBtnSpec');
             await page.waitForTimeout(8000); 
 // בדיקה אם קפצה הודעה שאין תורים פנויים
-            const noApptsMessage = await target.$('text="לא נמצאו תורים ביישוב או סביבה שבחרת"');
-            if (noApptsMessage && await noApptsMessage.isVisible()) {
-                console.log(`ℹ️ כללית מדווחת: אין תורים פנויים ב-${city}. סוגר את ההודעה (לוחץ על ה-X) ועובר הלאה...`);
+            // זיהוי ההודעה ישירות דרך כפתור ה-X (ID: CloseButton)
+            const closeBtn = await target.$('#CloseButton');
+            if (closeBtn && await closeBtn.isVisible()) {
+                console.log(`ℹ️ זוהתה הודעת 'אין תורים פנויים' ב-${city}. סוגר אותה כעת...`);
                 try {
-                    // לחיצה על ה-X לפי המזהה המדויק ששלחת (id="CloseButton" או class="close")
-                    const closeBtn = await target.$('#CloseButton, a.close');
-                    if (closeBtn) {
-                        await closeBtn.click();
-                    } else {
-                        // גיבוי למקרה שהאלמנט חסום: כפיית לחיצה דרך הדפדפן
-                        await target.evaluate(() => {
-                            const btn = document.querySelector('#CloseButton') || document.querySelector('a.close');
-                            if (btn) btn.click();
-                        });
-                    }
-                    await page.waitForTimeout(1000); // המתנה קצרה להעלמות החלון
+                    // לחיצה על ה-X בתוך הפריים
+                    await closeBtn.click();
+                    
+                    // גיבוי: לחיצה כפויה דרך הדפדפן אם הכפתור חסום
+                    await target.evaluate(() => {
+                        const btn = document.getElementById('CloseButton');
+                        if (btn) btn.click();
+                    });
+
+                    await page.waitForTimeout(1000);
                 } catch (closeErr) {
-                    console.log("⚠️ שגיאה בלחיצה על סגירת המודל, מנסה להמשיך לדף הבא...");
+                    console.log("⚠️ קושי טכני בסגירת החלון, מנסה להמשיך...");
                 }
-                continue; // מדלג על הסריקה בעיר הזו ועובר לעיר הבאה במערך
+                continue; 
             }
             let hasNextPage = true;
             let pageNum = 1;

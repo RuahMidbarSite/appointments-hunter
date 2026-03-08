@@ -33,20 +33,10 @@ export default function handler(req, res) {
     try {
       // ניקוי ממוקד: סוגר את הבוט הקודם ואת הדפדפנים שלו מבלי להפיל את השרת
       console.log("🪓 מנקה שאריות של דפדפנים ובוט קודם...");
-      if (process.platform === 'win32') {
-        try {
-          const { execSync } = require('child_process');
-          // סוגר רק את הדפדפנים הפתוחים (chrome/chromium)
-          execSync('taskkill /F /IM chrome.exe /T', { stdio: 'ignore' });
-          
-          // אם יש בוט שרץ כרגע, סוגר רק אותו לפי ה-PID שלו
-          if (currentBotProcess && currentBotProcess.pid) {
-             execSync(`taskkill /PID ${currentBotProcess.pid} /F /T`, { stdio: 'ignore' });
-          }
-        } catch (e) { /* אין מה לסגור */ }
-      } else {
-        // גיבוי למערכות הפעלה שאינן ווינדוס (כמו שרתי לינוקס)
-        if (currentBotProcess) currentBotProcess.kill('SIGKILL');
+      // סגירה מבוקרת של תהליך הבוט הקודם (ללא פקודות מערכת שסוגרות את כל הכרום)
+      if (currentBotProcess) {
+        console.log(`🪓 שולח בקשת עצירה לבוט (PID: ${currentBotProcess.pid})...`);
+        currentBotProcess.kill('SIGINT'); // שליחת סיגנל סגירה מסודר
       }
       currentBotProcess = null;
 
