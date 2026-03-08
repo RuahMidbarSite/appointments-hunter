@@ -14,14 +14,43 @@ export default function handler(req, res) {
   const configPath = path.join(process.cwd(), 'config.json');
 
   if (req.method === 'GET') {
-    // טעינת הקובץ הקיים כדי להחזיר לדשבורד את הסטטוס העדכני (בשביל הנורה)
     let currentConfig = {};
     if (fs.existsSync(configPath)) {
         currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     }
 
+    // משיכת התור המוקדם ביותר מהזיכרון הכולל רופא ועיר
+    let lastFoundDate = "טרם נמצאו תורים";
+    const memoryPath = path.join(process.cwd(), 'sent_appointments.json');
+    
+    if (fs.existsSync(memoryPath)) {
+        const memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+        let minTime = Infinity;
+        let bestDisplay = "";
+
+        for (const [docName, data] of Object.entries(memory)) {
+            // תמיכה בפורמט ישן (טקסט) ובפורמט חדש (אובייקט עם עיר)
+            const dateStr = typeof data === 'object' ? data.date : data;
+            const city = typeof data === 'object' ? data.city : "לא צוין יישוב";
+            
+            // חילוץ תאריך להשוואה (מנקה טקסט מיותר אם קיים)
+            const dateMatch = dateStr.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
+            if (dateMatch) {
+                const [_, d, m, y] = dateMatch;
+                const time = new Date(`${y}-${m}-${d}`).getTime();
+
+                if (time < minTime) {
+                    minTime = time;
+                    bestDisplay = `${dateMatch[0]} - ${docName} (${city})`;
+                }
+            }
+        }
+        if (bestDisplay) lastFoundDate = bestDisplay;
+    }
+
     return res.status(200).json({
       ...currentConfig,
+      lastFoundDate, // הוספת המידע לתשובה לדשבורד
       userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID'),
       userCode: currentConfig.userCode || cleanEnv('CLALIT_USER_CODE'),
       password: currentConfig.password || cleanEnv('CLALIT_PASSWORD'),

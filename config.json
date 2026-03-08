@@ -17,7 +17,8 @@
   "selectedGroup": "32",
   "selectedSpecialization": "32",
   "endDate": "",
-  "runInLoop": false,
+  "runInLoop": true,
   "loopFrequency": 60,
+  "lastFoundDate": "03.06.2026 - ד\"ר קרטאוי האלה (לא צוין יישוב)",
   "botStatus": "idle"
 }

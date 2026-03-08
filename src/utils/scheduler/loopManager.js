@@ -32,11 +32,13 @@ const isBetterAppointment = (docName, dateStr) => {
     const [day, month, year] = dateStr.split(/[\.\/]/);
     const newDate = new Date(`${year}-${month}-${day}`).getTime();
     
-    const previousDateStr = memory[docName];
+    const prevEntry = memory[docName];
     // אם אין תור קודם בזיכרון לרופא הזה, זה נחשב תור "טוב יותר"
-    if (!previousDateStr) return true; 
+    if (!prevEntry) return true; 
 
-    const [pDay, pMonth, pYear] = previousDateStr.split(/[\.\/]/);
+    // תמיכה בשליפת התאריך בין אם הוא מחרוזת (פורמט ישן) או אובייקט (פורמט חדש)
+    const prevDateStr = typeof prevEntry === 'object' ? prevEntry.date : prevEntry;
+    const [pDay, pMonth, pYear] = prevDateStr.split(/[\.\/]/);
     const previousDate = new Date(`${pYear}-${pMonth}-${pDay}`).getTime();
 
     // מחזיר אמת (true) רק אם התאריך שנמצא עכשיו מוקדם יותר מהתאריך השמור
@@ -44,12 +46,25 @@ const isBetterAppointment = (docName, dateStr) => {
 };
 
 /**
- * מעדכן את קובץ הזיכרון בתאריך החדש והטוב ביותר שנמצא עבור הרופא
+ * מעדכן את קובץ הזיכרון בתאריך החדש, הטוב ביותר והעיר שנמצאה
  */
-const updateMemory = (docName, dateStr) => {
+const updateMemory = (docName, dateStr, city) => {
+    // 1. עדכון קובץ הזיכרון (עבור הדשבורד וההתראות)
     let memory = fs.existsSync(memoryPath) ? JSON.parse(fs.readFileSync(memoryPath, 'utf8')) : {};
-    memory[docName] = dateStr;
+    const finalCity = city || "לא צויין יישוב";
+    memory[docName] = { date: dateStr, city: finalCity };
     fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
+
+    // 2. רישום בדוח הריצה (עבור כפתור הדוח בדשבורד)
+    const reportPath = path.join(process.cwd(), 'reports_history.log');
+    const timestamp = new Date().toLocaleString('he-IL');
+    const logEntry = `[${timestamp}] נמצא תור: ${dateStr} | רופא: ${docName} | עיר: ${finalCity}\n`;
+    
+    try {
+        fs.appendFileSync(reportPath, logEntry, 'utf8');
+    } catch (err) {
+        console.error("שגיאה בכתיבה לדוח המערכת:", err);
+    }
 };
 
 /**

@@ -110,7 +110,8 @@ export default function BotDashboard() {
         selectedSpecialization: '32',
         endDate: '',
         runInLoop: false,
-        loopFrequency: 15
+        loopFrequency: 15,
+        lastFoundDate: '' // יכיל פורמט: "תאריך - רופא (עיר)"
     });
 
     const [botLiveStatus, setBotLiveStatus] = useState('idle');
@@ -135,7 +136,8 @@ export default function BotDashboard() {
                         selectedSpecialization: data.selectedSpecialization || prev.selectedSpecialization,
                         endDate: data.endDate || prev.endDate,
                         runInLoop: data.runInLoop !== undefined ? data.runInLoop : prev.runInLoop,
-                        loopFrequency: data.loopFrequency || prev.loopFrequency
+                        loopFrequency: data.loopFrequency || prev.loopFrequency,
+                        lastFoundDate: data.lastFoundDate || prev.lastFoundDate // עדכון התאריך
                     }));
                     setBotLiveStatus(data.botStatus || 'idle');
                 }
@@ -228,7 +230,29 @@ export default function BotDashboard() {
                         <p className="text-[#00a896] text-lg md:text-xl font-medium">סריקה חכמה ללקוחות כללית</p>
                     </div>
 
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        {/* תצוגת התור המוקדם ביותר בזיכרון - עיצוב בשורות נפרדות */}
+                        <div className="bg-[#fff9e6] border border-[#fcefc7] px-6 py-3 rounded-2xl hidden lg:flex flex-col items-start shadow-inner min-w-[320px] max-w-md transition-all">
+                            <span className="text-base font-bold text-[#856404] uppercase leading-tight mb-2 opacity-90">התור המוקדם ביותר שנמצא:</span>
+                            
+                            {config.lastFoundDate && config.lastFoundDate.includes(' - ') ? (
+                                <div className="flex flex-col">
+                                    {/* התאריך בשורה עליונה מודגשת וגדולה */}
+                                    <span className="text-4xl font-black text-[#856404] leading-none mb-2">
+                                        {config.lastFoundDate.split(' - ')[0]}
+                                    </span>
+                                    {/* שם הרופא והיישוב בשורה נפרדת מתחת */}
+                                    <span className="text-lg font-bold text-[#856404] opacity-90 leading-tight">
+                                        {config.lastFoundDate.split(' - ')[1]}
+                                    </span>
+                                </div>
+                            ) : (
+                                <span className="text-2xl font-black text-[#856404] leading-tight">
+                                    {config.lastFoundDate || "טרם נמצאו תורים"}
+                                </span>
+                            )}
+                        </div>
+
                         <div className="bg-[#f0f9f8] border border-[#d1edea] px-4 py-2 rounded-2xl flex items-center gap-3 shadow-inner">
                             <div className={`w-4 h-4 rounded-full ${botLiveStatus === 'active' ? 'bg-[#00a896] animate-pulse shadow-[0_0_8px_rgba(0,168,150,0.4)]' : 'bg-gray-300'}`}></div>
                             <span className="text-lg font-bold text-[#005a4c] hidden md:inline">
@@ -337,9 +361,13 @@ export default function BotDashboard() {
                                 <button onClick={() => handleRun(true)} disabled={status === 'loading' || botLiveStatus === 'active'} className={`px-5 py-2 rounded-xl font-bold text-lg text-white transition-all transform hover:-translate-y-0.5 whitespace-nowrap ${botLiveStatus === 'active' ? 'bg-gray-300' : 'bg-[#007cc3] hover:bg-[#0066a1]'}`}>
                                     בדיקה
                                 </button>
-                                <button onClick={handleStop} className="px-5 py-2 bg-[#e11d48] hover:bg-[#be123c] text-white font-bold text-lg rounded-xl transition-all transform hover:-translate-y-0.5 whitespace-nowrap">
+                               <button onClick={handleStop} className="px-5 py-2 bg-[#e11d48] hover:bg-[#be123c] text-white font-bold text-lg rounded-xl transition-all transform hover:-translate-y-0.5 whitespace-nowrap">
                                     עצור
                                 </button>
+                                
+                                <a href="/api/download-report" download className="px-5 py-2 bg-gray-700 hover:bg-gray-800 text-white font-bold text-lg rounded-xl transition-all transform hover:-translate-y-0.5 whitespace-nowrap flex items-center gap-2">
+                                    📄 דוח
+                                </a>
                             </div>
                         </div>
                     </div>
