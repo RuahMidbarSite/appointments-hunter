@@ -4,17 +4,9 @@
   "password": "Ruah816#",
   "familyMember": "אניגמה דיי",
   "selectedCities": [
-    "הרצליה",
-    "תל אביב - יפו",
-    "נתניה",
-    "כפר סבא",
-    "רמת גן",
-    "רעננה",
-    "רמת השרון",
-    "גבעתיים",
-    "קריית אונו",
-    "פרדסיה"
+    "רעננה"
   ],
+  "includeSurrounding": true,
   "selectedDoctors": [],
   "selectedGroup": "32",
   "selectedSpecialization": "32",
@@ -22,8 +14,8 @@
   "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
-  "endTime": "16:00",
+  "endTime": "00:00",
   "lastFoundDate": "02.06.2026 - ד\"ר דאבוש קובי (לא צויין יישוב)",
-  "nextRunTime": 1773061536490,
+  "nextRunTime": 1773091052008,
   "botStatus": "idle"
 }

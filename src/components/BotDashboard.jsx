@@ -55,18 +55,23 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
     return (
         <div className="relative" ref={dropdownRef}>
             <div className="relative flex items-center">
-                <input 
-                    type="text"
-                    className={`w-full px-4 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xl font-medium transition-all min-h-[40px] shadow-sm outline-none focus:ring-2 ${focusClass}`}
-                    placeholder={selected.length > 0 ? "" : placeholder}
-                    value={isOpen ? searchTerm : getSelectedLabels()}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        if (!isOpen) setIsOpen(true);
-                    }}
-                    onFocus={() => setIsOpen(true)}
-                    onClick={() => { if (isOpen) setSearchTerm(''); }}
-                />
+               <input 
+    type="text"
+    className={`w-full px-4 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xl font-medium transition-all min-h-[40px] shadow-sm outline-none focus:ring-2 ${focusClass}`}
+    placeholder={isOpen && selected.length > 0 ? getSelectedLabels() : placeholder}
+    value={isOpen ? searchTerm : getSelectedLabels()}
+    onChange={(e) => {
+        setSearchTerm(e.target.value);
+        if (!isOpen) setIsOpen(true);
+    }}
+    onFocus={() => { setIsOpen(true); setSearchTerm(''); }}
+    onClick={() => { if (isOpen) setSearchTerm(''); }}
+    onKeyDown={(e) => {
+        if (e.key === 'Backspace' && isMulti && searchTerm === '' && selected.length > 0) {
+            onChange(selected.slice(0, -1));
+        }
+    }}
+/>
                 {/* כפתור הניקוי המהיר (X) כשהתפריט סגור ויש בחירות */}
                 {selected.length > 0 && !isOpen && (
                     <button 
@@ -105,26 +110,26 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
                             const label = isObject ? option.label : option;
                             const isChecked = selected.includes(value);
                             return (
-                                <label 
-                                    key={value} 
-                                    className={`flex items-center px-4 py-3 hover:bg-gray-100 rounded-lg cursor-pointer transition-colors ${isChecked ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-800'}`}
-                                    onClick={(e) => {
-                                        if (!isMulti) {
-                                            e.preventDefault();
-                                            toggleOption(option);
-                                        }
-                                    }}
-                                >
-                                    {isMulti && (
-                                        <input 
-                                            type="checkbox" 
-                                            className="ml-3 w-5 h-5 cursor-pointer"
-                                            checked={isChecked}
-                                            readOnly // במצב מולטי הלחיצה מנוהלת על ידי ה-label
-                                        />
-                                    )}
-                                    <span className="text-base font-medium">{label}</span>
-                                </label>
+                                <div 
+    key={String(value)} 
+    className={`flex items-center px-4 py-3 hover:bg-gray-100 rounded-lg cursor-pointer transition-colors ${isChecked ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-800'}`}
+    onClick={(e) => {
+        // מונע מהקליק "לקפוץ" פעמיים
+        e.preventDefault(); 
+        e.stopPropagation();
+        toggleOption(option);
+    }}
+>
+    {isMulti && (
+        <input 
+            type="checkbox" 
+            className="ml-3 w-5 h-5 cursor-pointer pointer-events-none" // מונע מהצ'קבוקס לתפוס קליקים בעצמו
+            checked={!!isChecked} 
+            readOnly
+        />
+    )}
+    <span className="text-base font-medium pointer-events-none">{label}</span>
+</div>
                             );
                         }) : (
                             <div className="p-4 text-base text-gray-500 text-center font-medium">לא נמצאו תוצאות</div>
@@ -137,12 +142,13 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
 };
 
 export default function BotDashboard() {
-    const [config, setConfig] = useState({
+   const [config, setConfig] = useState({
         userId: '', 
         userCode: '', 
         password: '', 
         familyMember: '', 
         selectedCities: ['הרצליה'], 
+        includeSurrounding: true, // הוספת שדה "יישובים בסביבה" מופעל כברירת מחדל
         selectedDoctors: [], 
         selectedGroup: '32',
         selectedSpecialization: '32',
@@ -201,7 +207,7 @@ export default function BotDashboard() {
 
         const fetchBotData = async () => {
             try {
-                const response = await fetch('/api/save-config');
+                const response = await fetch(`/api/save-config?t=${new Date().getTime()}`);
                 if (response.ok) {
                     const data = await response.json();
                     
@@ -221,6 +227,7 @@ export default function BotDashboard() {
                             password: data.password || prev.password,
                             familyMember: data.familyMember || prev.familyMember,
                             selectedCities: data.selectedCities || prev.selectedCities,
+                            includeSurrounding: data.includeSurrounding !== undefined ? data.includeSurrounding : true,
                             selectedDoctors: data.selectedDoctors || prev.selectedDoctors,
                             selectedGroup: data.selectedGroup || prev.selectedGroup,
                             selectedSpecialization: data.selectedSpecialization || prev.selectedSpecialization,
@@ -261,15 +268,31 @@ export default function BotDashboard() {
         setStatus('idle');
     };
 
-    const handleCitiesChange = (newCities) => {
-        setConfig(prev => ({ ...prev, selectedCities: newCities }));
-        setStatus('idle');
-    };
+    const handleAutoSave = async (updatedConfig) => {
+    try {
+        await fetch('/api/save-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...updatedConfig, action: 'save_only' })
+        });
+    } catch (error) {
+        console.error("שגיאה בשמירה אוטומטית:", error);
+    }
+};
 
-    const handleDoctorsChange = (newDoctors) => {
-        setConfig(prev => ({ ...prev, selectedDoctors: newDoctors }));
-        setStatus('idle');
-    };
+const handleCitiesChange = (newCities) => {
+    const updated = { ...config, selectedCities: newCities };
+    setConfig(updated);
+    setStatus('idle');
+    handleAutoSave(updated);
+};
+
+const handleDoctorsChange = (newDoctors) => {
+    const updated = { ...config, selectedDoctors: newDoctors };
+    setConfig(updated);
+    setStatus('idle');
+    handleAutoSave(updated);
+};
 
   const handleRun = async (isSingle = false) => {
         setStatus('loading');
@@ -453,7 +476,11 @@ const handleSaveOnly = async () => {
                                     /* הפיכת האובייקט למערך שהרכיב יודע לסנן */
                                     options={Object.values(CLALIT_GROUPS).map(g => ({ id: String(g.id), label: String(g.name) }))}
                                     selected={config.selectedGroup ? [String(config.selectedGroup)] : []}
-                                    onChange={(val) => setConfig({...config, selectedGroup: val[0] || ''})}
+                                    onChange={(val) => {
+                                    const updated = { ...config, selectedGroup: val[0] || '' };
+                                    setConfig(updated);
+                                    handleAutoSave(updated);
+}}
                                     placeholder="חפש ובחר סוג שירות..."
                                     isObject={true}
                                     isMulti={false} 
@@ -474,7 +501,11 @@ const handleSaveOnly = async () => {
                                     /* עטיפת הבחירה היחידה במערך */
                                     selected={config.selectedSpecialization ? [String(config.selectedSpecialization)] : []}
                                     /* עדכון הבחירה ואיפוס השם במידת הצורך */
-                                    onChange={(val) => setConfig({...config, selectedSpecialization: val[0] || ''})}
+                                    onChange={(val) => {
+                                        const updated = { ...config, selectedSpecialization: val[0] || '' };
+                                        setConfig(updated);
+                                        handleAutoSave(updated);
+                                    }}
                                     placeholder={CLALIT_SPECIALIZATIONS[config.selectedGroup] ? "חפש ובחר התמחות..." : "בחר קבוצה תחילה"}
                                     isObject={true}
                                     isMulti={false} 
@@ -483,7 +514,23 @@ const handleSaveOnly = async () => {
                             </div>
                             <div>
                                 <label className="block text-lg font-bold text-gray-700 mb-0.5">ערים לסריקה</label>
-                                <MultiSelectDropdown options={AVAILABLE_CITIES} selected={config.selectedCities} onChange={handleCitiesChange} placeholder="בחר ערים..." focusClass="focus:ring-[#00a896]" />
+                                <MultiSelectDropdown options={AVAILABLE_CITIES} selected={config.selectedCities} onChange={handleCitiesChange} placeholder="בחר ערים..." isObject={true} focusClass="focus:ring-[#00a896]" />
+                                <div className="mt-2.5 flex items-center pr-1">
+                                    <input 
+                                        type="checkbox" 
+                                        id="includeSurrounding" 
+                                        name="includeSurrounding"
+                                        checked={config.includeSurrounding}
+                                        onChange={(e) => {
+                                            setConfig(prev => ({ ...prev, includeSurrounding: e.target.checked }));
+                                            setStatus('idle');
+                                        }}
+                                        className="w-4 h-4 cursor-pointer text-[#00a896] bg-white border-gray-300 rounded focus:ring-[#00a896] focus:ring-2"
+                                    />
+                                    <label htmlFor="includeSurrounding" className="mr-2 text-sm font-bold text-gray-600 cursor-pointer select-none">
+                                        כולל יישובים בסביבה
+                                    </label>
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-lg font-bold text-gray-700 mb-0.5">רופאים מועדפים</label>

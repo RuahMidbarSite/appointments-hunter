@@ -187,7 +187,7 @@ async function runClalit(page) {
             await target.click('#searchBtnSpec');
             await page.waitForTimeout(8000); 
 // בדיקה אם קפצה הודעה שאין תורים פנויים
-            // זיהוי ההודעה ישירות דרך כפתור ה-X (ID: CloseButton)
+           // זיהוי ההודעה ישירות דרך כפתור ה-X (ID: CloseButton)
             const closeBtn = await target.$('#CloseButton');
             if (closeBtn && await closeBtn.isVisible()) {
                 console.log(`ℹ️ זוהתה הודעת 'אין תורים פנויים' ב-${city}. סוגר אותה כעת...`);
@@ -205,7 +205,14 @@ async function runClalit(page) {
                 } catch (closeErr) {
                     console.log("⚠️ קושי טכני בסגירת החלון, מנסה להמשיך...");
                 }
-                continue; 
+                
+                // מתחשבים בצ'קבוקס: מדלגים רק אם *לא* ביקשנו יישובים בסביבה
+                if (!config.includeSurrounding) {
+                    console.log("🚫 לא הוגדרו יישובים בסביבה. מדלג לעיר הבאה.");
+                    continue; 
+                } else {
+                    console.log("✅ מוגדר 'כולל יישובים בסביבה'. קורא את התוצאות שהופיעו מאחורי החלון...");
+                }
             }
             let hasNextPage = true;
             let pageNum = 1;
@@ -213,13 +220,16 @@ async function runClalit(page) {
             while (hasNextPage) {
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} ב${city}...`);
                 // הסרנו את הגדרת activeDoctorsFilter מכאן כי היא כבר הוגדרה למעלה
-
+                // --- קוד דיבוג: צילום מסך ---
+                await page.screenshot({ path: `debug_${city}_page_${pageNum}.png` });
+                console.log(`📸 שמרתי צילום מסך בתיקייה הראשית: debug_${city}_page_${pageNum}.png`);
                 // שולפים את כל המידע הגולמי מתוך הדף ללא שום סינון כדי להדפיס לטרמינל
                const rawDataFromPage = await target.evaluate(() => {
                     return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
                         const addressText = card.querySelector('.clinicAddress')?.innerText || '';
-                        // פיצול הכתובת כדי לקחת רק את שם העיר (לפני הפסיק הראשון)
-                        const actualCity = addressText.split(',')[0].trim();
+                        // תיקון: שם העיר מופיע לרוב אחרי הפסיק (למשל: "דרך הבנים 17, פרדס חנה")
+                        const parts = addressText.split(',');
+                        const actualCity = parts.length > 1 ? parts[parts.length - 1].trim() : addressText.trim();
 
                         return {
                             docNameRaw: card.querySelector('.doctorName')?.innerText || 'לא נמצא שם',
@@ -259,8 +269,19 @@ async function runClalit(page) {
                         continue;
                     }
 
+                    // סינון לפי עיר אם הצ'קבוקס כבוי (ותמיכה בתורים טלפוניים ללא ציון עיר)
+                    if (!config.includeSurrounding && item.actualCity !== city && item.actualCity !== 'עיר לא ידועה' && !item.actualCity.includes('לא צויין')) {
+                        console.log(`   -> דילגתי: התור בעיר ${item.actualCity} ולא ב-${city}, והצ'קבוקס כבוי.`);
+                        continue;
+                    }
+
+                    // --- התיקון הקריטי: שמירת התאריך הנקי בלבד ---
+                    // משתמשים במשתנה match שכבר יצרנו קודם כדי לקחת רק את התאריך הנקי (למשל "24.03.2026")
+                    const cleanDate = match[0];
+
                     console.log(`   -> ✅ התור עבר את כל הסינונים וישלח למייל!`);
-                    foundInPage.push({ doctor: item.docNameRaw.trim(), dateStr: item.dateTextRaw.trim() });
+                    // מעבירים את cleanDate במקום את הטקסט הגולמי
+                    foundInPage.push({ doctor: item.docNameRaw.trim(), dateStr: cleanDate, actualCity: item.actualCity });
                 }
                 console.log("--- סוף הדפסת דיבוג ---\n");
 

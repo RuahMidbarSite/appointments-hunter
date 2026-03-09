@@ -28,20 +28,40 @@ const isBetterAppointment = (docName, dateStr) => {
         memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
     }
 
-    // המרת התאריך שנמצא (DD.MM.YYYY או DD/MM/YYYY) לאובייקט תאריך בר השוואה
-    const [day, month, year] = dateStr.split(/[\.\/]/);
-    const newDate = new Date(`${year}-${month}-${day}`).getTime();
-    
     const prevEntry = memory[docName];
+    
     // אם אין תור קודם בזיכרון לרופא הזה, זה נחשב תור "טוב יותר"
-    if (!prevEntry) return true; 
+    if (!prevEntry) {
+        console.log(`   [דיבוג תאריכים] אין תור קודם בזיכרון לרופא ${docName}. מאשר שליחה!`);
+        return true; 
+    }
 
-    // תמיכה בשליפת התאריך בין אם הוא מחרוזת (פורמט ישן) או אובייקט (פורמט חדש)
+    // חילוץ בטוח של התאריך החדש (מוודא שאין טקסט מיותר מסביב)
+    const newMatch = dateStr.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
+    if (!newMatch) {
+        console.log(`   [דיבוג תאריכים] התאריך החדש שהתקבל אינו תקין: ${dateStr}`);
+        return false;
+    }
+    const newDate = new Date(`${newMatch[3]}-${newMatch[2]}-${newMatch[1]}`).getTime();
+
+    // שליפת התאריך הישן מהזיכרון
     const prevDateStr = typeof prevEntry === 'object' ? prevEntry.date : prevEntry;
-    const [pDay, pMonth, pYear] = prevDateStr.split(/[\.\/]/);
-    const previousDate = new Date(`${pYear}-${pMonth}-${pDay}`).getTime();
+    
+    // חילוץ בטוח של התאריך הישן באמצעות Regex (למקרה שהקובץ מכיל טקסט מלוכלך מפעם קודמת)
+    const prevMatch = prevDateStr.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
+    
+    if (!prevMatch) {
+        console.log(`   [דיבוג תאריכים] התאריך השמור בזיכרון משובש: ${prevDateStr}. דורס אותו עם החדש.`);
+        return true; // אם התאריך הישן נדפק או הוקלט כטקסט מוזר, נאשר את התור החדש כדי לתקן את הזיכרון
+    }
 
-    // מחזיר אמת (true) רק אם התאריך שנמצא עכשיו מוקדם יותר מהתאריך השמור
+    const previousDate = new Date(`${prevMatch[3]}-${prevMatch[2]}-${prevMatch[1]}`).getTime();
+
+    // הדפסת הדיבוג לטרמינל כדי שנראה בדיוק מה המחשב רואה
+    console.log(`   [דיבוג תאריכים] השוואת תאריכים עבור ${docName}:`);
+    console.log(`   [דיבוג תאריכים] 🗓️ חדש: ${newMatch[0]} | 💾 שמור בזיכרון: ${prevMatch[0]}`);
+    console.log(`   [דיבוג תאריכים] 🧮 מתמטיקה: ${newDate} < ${previousDate} = ${newDate < previousDate}`);
+
     return newDate < previousDate; 
 };
 
