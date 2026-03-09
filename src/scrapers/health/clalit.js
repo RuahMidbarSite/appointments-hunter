@@ -34,70 +34,59 @@ async function runClalit(page) {
     const stats = { startTime: new Date() };
 
     console.log("--- מתחיל סריקה עבור כללית (מצב Stealth פעיל) ---");
-    await page.goto('https://e-services.clalit.co.il/onlineweb/general/login.aspx', { waitUntil: 'domcontentloaded' });
-
-  try {
-      // 1. מעבר ללשונית "קוד משתמש וסיסמה" עם תיקון גלילה ממרכז
-        const passTabBtn = '#ctl00_cphBody__loginView_btnPassword';
-        console.log("👆 עובר ללשונית 'קוד משתמש וסיסמה'...");
-        try {
-            await page.waitForSelector(passTabBtn, { state: 'visible', timeout: 15000 });
-            await page.$eval(passTabBtn, (el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-            // הקיצוץ: המתנה מינימלית בלבד לפני הלחיצה
-            await page.waitForTimeout(200); 
-            await page.click(passTabBtn);
-            // הקיצוץ: ביטול ההמתנה של ה-2 שניות. פליירייט ימתין אוטומטית לשדה בהמשך הקוד
-            await page.waitForTimeout(300); 
-        } catch (err) {
-            console.log("⚠️ לא הצלחתי ללחוץ על הלשונית באמצעות ID, מנסה להמשיך להזנה...");
-        }
-        // 2. הגדרת סלקטורים לפי ה-HTML המדויק ששלחת מהקונסול
-        const idField = '#ctl00_cphBody__loginView_tbUserId';
-        const codeField = '#ctl00_cphBody__loginView_tbUserName';
-        const passField = '#ctl00_cphBody__loginView_tbPassword';
-
-        console.log("⏳ ממתין להופעת שדות ההזנה...");
-        await page.waitForSelector(idField, { state: 'visible', timeout: 10000 });
-
-        const idToType = String(config.userId || '');
-        const codeToType = String(config.userCode || '');
-        const passToType = String(config.password || '');
-
-        console.log(`⌨️ מזין נתוני התחברות (ת"ז: ${idToType.substring(0,3)}***)...`);
+   try {
+        // בדיקה אם אנחנו כבר מחוברים בדף שירותי האון-ליין (חוסך טעינה מחדש)
+        const isLoggedIn = await page.$('text="שירותי האון־ליין"').catch(() => null);
         
-        // פונקציית עזר להקלדה אנושית - שומרת על קצב ההקלדה אך מקצרת המתנות ריקות
-        const typeHumanLike = async (selector, text) => {
-            await page.click(selector, { clickCount: 3 });
-            await page.keyboard.press('Backspace');
-            await page.waitForTimeout(50); // קוצר משמעותית: המתנה מזערית רק לאיפוס השדה
+        if (!isLoggedIn) {
+            console.log("🛡️ לא מזוהה סשן פעיל, טוען דף כניסה או מרענן...");
+            await page.goto('https://e-services.clalit.co.il/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx', { waitUntil: 'commit' });
+        } else {
+            console.log("⚡ נמצא סשן פעיל! ממשיך לסריקה ללא לוגין מחדש.");
+        }
+
+        const idField = '#ctl00_cphBody__loginView_tbUserId';
+        // אם אנחנו כבר בפנים, השדה הזה לא יופיע והבוט ימשיך הלאה
+        const needsLogin = await page.waitForSelector(idField, { visible: true, timeout: 5000 }).catch(() => null);
+        if (needsLogin) {
+            console.log("🔑 לא מזוהה חיבור פעיל, מבצע לוגין מלא...");
             
-            for (const char of text) {
-                await page.keyboard.insertText(char);
-                // קצב ההקלדה האנושי והטוב נשמר בדיוק כפי שהיה
-                await page.waitForTimeout(Math.floor(Math.random() * 150) + 150);
+            // מעבר ללשונית "קוד משתמש וסיסמה"
+            const passTabBtn = '#ctl00_cphBody__loginView_btnPassword';
+            try {
+                await page.waitForSelector(passTabBtn, { state: 'visible', timeout: 10000 });
+                await page.click(passTabBtn);
+                await page.waitForTimeout(500);
+            } catch (tabErr) {
+                console.log("⚠️ לשונית סיסמה לא נמצאה או שכבר פעילה.");
             }
-        };
 
-        console.log("⌨️ מתחיל הזנה אנושית מיד...");
+            const codeField = '#ctl00_cphBody__loginView_tbUserName';
+            const passField = '#ctl00_cphBody__loginView_tbPassword';
+            
+            const idToType = String(config.userId || '');
+            const codeToType = String(config.userCode || '');
+            const passToType = String(config.password || '');
 
-        // 1. הזנה רציפה - השהיות המעבר בין השדות קוצצו
-        await typeHumanLike(idField, idToType);
-        await page.waitForTimeout(100); // מעבר כמעט מיידי לשדה הבא
-        await typeHumanLike(codeField, codeToType);
-        await page.waitForTimeout(100); 
-        await typeHumanLike(passField, passToType);
+            // פונקציית עזר להקלדה אנושית
+            const typeHumanLike = async (selector, text) => {
+                await page.click(selector, { clickCount: 3 });
+                await page.keyboard.press('Backspace');
+                for (const char of text) {
+                    await page.keyboard.insertText(char);
+                    await page.waitForTimeout(Math.floor(Math.random() * 100) + 100);
+                }
+            };
 
-        // 2. לחיצה על כפתור הכניסה
-        const loginBtnSelector = '#ctl00_cphBody__loginView_btnSend';
-        console.log("🚀 לוחץ על כפתור הכניסה...");
-        try {
-            await page.waitForSelector(loginBtnSelector, { state: 'visible', timeout: 15000 });
-            await page.$eval(loginBtnSelector, (el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-            await page.waitForTimeout(200); 
+            await typeHumanLike(idField, idToType);
+            await typeHumanLike(codeField, codeToType);
+            await typeHumanLike(passField, passToType);
+
+            const loginBtnSelector = '#ctl00_cphBody__loginView_btnSend';
             await page.click(loginBtnSelector);
-        } catch (err) {
-            console.error("❌ לא הצלחתי ללחוץ על כפתור הכניסה:", err.message);
-            await page.click('span:has-text("כניסה")');
+            console.log("🚀 נשלחו פרטי התחברות...");
+        } else {
+            console.log("⚡ כבר מחובר! מדלג ישירות לתוך המערכת...");
         }
 
         console.log("--------------------------------------------------");
@@ -226,11 +215,16 @@ async function runClalit(page) {
                 // הסרנו את הגדרת activeDoctorsFilter מכאן כי היא כבר הוגדרה למעלה
 
                 // שולפים את כל המידע הגולמי מתוך הדף ללא שום סינון כדי להדפיס לטרמינל
-                const rawDataFromPage = await target.evaluate(() => {
+               const rawDataFromPage = await target.evaluate(() => {
                     return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
+                        const addressText = card.querySelector('.clinicAddress')?.innerText || '';
+                        // פיצול הכתובת כדי לקחת רק את שם העיר (לפני הפסיק הראשון)
+                        const actualCity = addressText.split(',')[0].trim();
+
                         return {
                             docNameRaw: card.querySelector('.doctorName')?.innerText || 'לא נמצא שם',
-                            dateTextRaw: card.querySelector('.visitDateTime')?.innerText || 'לא נמצא תאריך'
+                            dateTextRaw: card.querySelector('.visitDateTime')?.innerText || 'לא נמצא תאריך',
+                            actualCity: actualCity || 'עיר לא ידועה'
                         };
                     });
                 });
@@ -270,31 +264,39 @@ async function runClalit(page) {
                 }
                 console.log("--- סוף הדפסת דיבוג ---\n");
 
-                for (const appt of foundInPage) {
-                    const key = `${appt.doctor}-${appt.dateStr}`;
+                if (foundInPage.length > 0) {
+                    // מציאת התור עם התאריך המוקדם ביותר מבין כל אלו שנמצאו בדף הנוכחי
+                    const bestAppt = foundInPage.reduce((prev, curr) => {
+                        const parseDate = (d) => {
+                            const parts = d.split(/[\.\/]/);
+                            return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+                        };
+                        return parseDate(curr.dateStr) < parseDate(prev.dateStr) ? curr : prev;
+                    });
+
+                    const key = `${bestAppt.doctor}-${bestAppt.dateStr}`;
+                    // שליחה רק אם התור הזה לא נשלח בסבב הנוכחי וגם טוב יותר מהזיכרון ההיסטורי
                     if (!sentInThisRun.has(key)) {
                         try {
-                            // בדיקה אם התור מוקדם יותר ממה שכבר נשלח בעבר (שימוש בקובץ sent_appointments.json)
-                            if (isBetterAppointment(appt.doctor, appt.dateStr)) {
-                                await sendEmailNotification(appt.doctor, city, appt.dateStr);
-                                
-                                // עדכון הזיכרון בתאריך החדש (המוקדם יותר)
-                                updateMemory(appt.doctor, appt.dateStr);
+                            if (isBetterAppointment(bestAppt.doctor, bestAppt.dateStr)) {
+                                // שליחה עם העיר האמיתית (actualCity) שנשלפה מהכרטיסייה
+                                await sendEmailNotification(bestAppt.doctor, bestAppt.actualCity, bestAppt.dateStr);
+                                updateMemory(bestAppt.doctor, bestAppt.dateStr, bestAppt.actualCity);
 
                                 const report = createExecutionReport(stats, {
                                     familyMember: config.familyMember || 'ראשי',
                                     specialization: config.selectedSpecialization || 'לא הוגדר',
-                                    city: city,
-                                    doctor: appt.doctor,
-                                    dateStr: appt.dateStr
+                                    city: bestAppt.actualCity,
+                                    doctor: bestAppt.doctor,
+                                    dateStr: bestAppt.dateStr
                                 });
                                 console.log(report);
                             } else {
-                                console.log(`   -> דילגתי על שליחת מייל: נמצא בזיכרון תור מוקדם יותר עבור ${appt.doctor}`);
+                                console.log(`   -> נמצא תור ל-${bestAppt.doctor}, אך הוא אינו מוקדם יותר מהתור השמור בזיכרון.`);
                             }
                             sentInThisRun.add(key);
                         } catch (mailErr) {
-                            console.error(`⚠️ שגיאה בעיבוד התור לשליחה:`, mailErr.message);
+                            console.error(`⚠️ שגיאה בעיבוד ושליחת התור הטוב ביותר:`, mailErr.message);
                         }
                     }
                 }
@@ -328,15 +330,16 @@ async function runClalit(page) {
         const configRefresh = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
         
         if (configRefresh.runInLoop) {
-            const frequency = configRefresh.loopFrequency || 15;
-            console.log(`⏳ סבב הסתיים. ממתין ${frequency} דקות לסבב הבא (לפי הגדרת תדירות)...`);
-            
-            // המתנה חכמה שבודקת כל כמה שניות אם המשתמש כיבה את הלולאה
-            const continueLoop = await waitMinutes(frequency);
+            const frequencyRange = configRefresh.loopFrequency || "10-15";
+            console.log(`⏳ סבב הסתיים. הדפדפן נשאר פתוח. ממתין ${frequencyRange} דקות...`);
+                        
+            const continueLoop = await waitMinutes(frequencyRange);
             
             if (continueLoop) {
-                console.log("🔄 מתחיל סבב סריקה חדש...");
-                return runClalit(page); // הרצה חוזרת של אותה פונקציה
+                console.log("🔄 מבצע רענון ומתחיל סבב חדש על אותו דפדפן...");
+                // רענון קל כדי "להעיר" את הסשן לפני הסריקה
+                await page.reload({ waitUntil: 'commit' }).catch(() => {});
+                return runClalit(page); 
             }
         }
         console.log("🏁 הבוט סיים את עבודתו.");

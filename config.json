@@ -6,19 +6,24 @@
   "selectedCities": [
     "הרצליה",
     "תל אביב - יפו",
-    "פתח תקווה",
-    "ראשון לציון",
     "נתניה",
     "כפר סבא",
+    "רמת גן",
     "רעננה",
-    "רמת השרון"
+    "רמת השרון",
+    "גבעתיים",
+    "קריית אונו",
+    "פרדסיה"
   ],
   "selectedDoctors": [],
   "selectedGroup": "32",
   "selectedSpecialization": "32",
   "endDate": "",
-  "runInLoop": true,
-  "loopFrequency": 60,
-  "lastFoundDate": "03.06.2026 - ד\"ר קרטאוי האלה (לא צוין יישוב)",
+  "runInLoop": false,
+  "loopFrequency": "10-15",
+  "startTime": "08:00",
+  "endTime": "16:00",
+  "lastFoundDate": "02.06.2026 - ד\"ר דאבוש קובי (לא צויין יישוב)",
+  "nextRunTime": 1773061536490,
   "botStatus": "idle"
 }

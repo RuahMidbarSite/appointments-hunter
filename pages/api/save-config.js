@@ -69,6 +69,17 @@ export default function handler(req, res) {
       }
       currentBotProcess = null;
 
+      // בדיקה האם זו פקודת שמירה בלבד (ללא הפעלה מחדש של הבוט)
+      if (req.body && req.body.action === 'save_only') {
+          const cfgToSave = { ...req.body };
+          delete cfgToSave.action; // מנקים את שדה הפעולה כדי לא ללכלך את הקובץ
+          
+          // שומרים את ההגדרות החדשות בקובץ בשקט. הבוט יקרא אותן בסבב הבא
+          fs.writeFileSync(configPath, JSON.stringify(cfgToSave, null, 2));
+          console.log("💾 הגדרות עודכנו ברקע (ייכנסו לתוקף בסבב הבא).");
+          return res.status(200).json({ message: 'Config saved silently' });
+      }
+
       // בדיקה האם זו פקודת עצירה בלבד מהדשבורד
       if (req.body && req.body.action === 'stop') {
         // עדכון הקובץ לסטטוס כבוי כדי שהנורה תתעדכן מיד
@@ -82,7 +93,7 @@ export default function handler(req, res) {
         return res.status(200).json({ message: 'Bot stopped successfully' });
       }
 
-      // 2. הכנת הנתונים ושמירת ההגדרות
+     // 2. הכנת הנתונים ושמירת ההגדרות
       const finalConfig = { ...req.body };
 
       // משיכת פרטי התחברות מה-ENV רק אם השדות בדשבורד ריקים
@@ -91,8 +102,9 @@ export default function handler(req, res) {
       if (!finalConfig.password) finalConfig.password = cleanEnv('CLALIT_PASSWORD');
       if (!finalConfig.familyMember) finalConfig.familyMember = cleanEnv('CLALIT_FAMILY_MEMBER');
 
-      // הבטחת סטטוס ראשוני כשאנחנו מפעילים בוט חדש
+      // הבטחת סטטוס ראשוני כשאנחנו מפעילים בוט חדש (ואיפוס טיימר קודם)
       finalConfig.botStatus = 'active';
+      finalConfig.nextRunTime = null; // מוחקים זמן ישן כדי לא לבלבל את הטיימר
       fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
 
       console.log("✅ ההגדרות נשמרו. מתחיל ריצה חדשה...");

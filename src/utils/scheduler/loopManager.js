@@ -68,10 +68,35 @@ const updateMemory = (docName, dateStr, city) => {
 };
 
 /**
+ * מחשב זמן המתנה אקראי מתוך מחרוזת טווח (למשל "10-15")
+ */
+const getRandomFrequency = (rangeStr) => {
+    if (!rangeStr || typeof rangeStr !== 'string' || !rangeStr.includes('-')) {
+        return typeof rangeStr === 'number' ? rangeStr : 15;
+    }
+    const [min, max] = rangeStr.split('-').map(Number);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
+/**
  * ממתין בין סבבים ובודק כל 5 שניות אם המשתמש ביקש להפסיק בדשבורד
  */
-async function waitMinutes(minutes) {
+async function waitMinutes(range) {
+    const minutes = getRandomFrequency(range);
+    console.log(`🎲 נבחר זמן המתנה אקראי של ${minutes} דקות לסבב זה.`);
     const ms = minutes * 60 * 1000;
+    
+    // --- תוספת חדשה לסנכרון הטיימר מול הדשבורד ---
+    // מחשבים את שעת ההתעוררות המדויקת ושומרים בקובץ כדי שהדשבורד יקרא אותה
+    try {
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        cfg.nextRunTime = Date.now() + ms;
+        fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+    } catch (e) {
+        console.error("שגיאה בשמירת זמן הריצה הבא:", e);
+    }
+    // ----------------------------------------------
+
     const checkStep = 5000; // בודק כל 5 שניות אם המשתמש עצר את הבוט
     for (let i = 0; i < ms; i += checkStep) {
         const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -81,10 +106,27 @@ async function waitMinutes(minutes) {
     return true;
 }
 
-// ייצוא כל הפונקציות לשימוש בתוך clalit.js
+/**
+ * מתעד כל סיום של לולאת סריקה בקובץ הדוח, כולל כמות התוצאות
+ */
+const logScanRun = (foundCount) => {
+    const reportPath = path.join(process.cwd(), 'reports_history.log');
+    const timestamp = new Date().toLocaleString('he-IL');
+    const status = foundCount > 0 ? `✅ הניב ${foundCount} תוצאות חדשות/טובות יותר` : `⚪ סריקה ריקה (לא נמצאו תורים חדשים)`;
+    const logEntry = `[${timestamp}] 🔄 סבב סריקה הסתיים | ${status}\n`;
+    
+    try {
+        fs.appendFileSync(reportPath, logEntry, 'utf8');
+    } catch (err) {
+        console.error("שגיאה בכתיבת סיכום סבב לדוח:", err);
+    }
+};
+
+// ייצוא מעודכן הכולל את כל הפונקציות הנדרשות
 module.exports = { 
     setBotStatus, 
     waitMinutes, 
     isBetterAppointment, 
-    updateMemory 
+    updateMemory,
+    logScanRun
 };
