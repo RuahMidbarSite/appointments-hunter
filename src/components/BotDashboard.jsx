@@ -121,23 +121,15 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
                             const isChecked = selected.includes(value);
                             
                             // עיצוב ייעודי לרופאים בשורות נפרדות
+                            // עיצוב נקי - מציג רק את השם בשורת החיפוש
                             let displayContent = <span className="text-base font-medium pointer-events-none">{labelStr}</span>;
                             
                             if (labelStr.includes('|')) {
-                                const parts = labelStr.split('|').map(p => p.trim());
-                                const name = parts[0] || '';
-                                const clinic = parts[2] || '';
-                                const address = parts[3] || '';
-                                let phone = parts[4] || '';
-                                if (phone.startsWith('טל:')) phone = phone.replace('טל:', '').trim();
-                                
+                                const name = labelStr.split('|')[0].trim();
                                 displayContent = (
-                                    <div className="flex flex-col text-sm w-full pe-2 pointer-events-none leading-snug gap-1 py-1 text-right">
-                                        <span className={`text-base font-bold ${isChecked ? 'text-blue-800' : 'text-gray-900'}`}>{name}</span>
-                                        {clinic && clinic !== '' && <span className="text-gray-600"><span className="font-bold text-gray-700">מרפאה:</span> {clinic}</span>}
-                                        {address && address !== '' && <span className="text-gray-600"><span className="font-bold text-gray-700">כתובת:</span> {address}</span>}
-                                        {phone && phone !== 'אין טלפון' && <span className="text-gray-600"><span className="font-bold text-gray-700">טלפון:</span> {phone}</span>}
-                                    </div>
+                                    <span className={`text-base font-bold ${isChecked ? 'text-blue-800' : 'text-gray-900'} pointer-events-none`}>
+                                        {name}
+                                    </span>
                                 );
                             }
 
@@ -193,7 +185,8 @@ export default function BotDashboard() {
        loopFrequency: "10-15",
        startTime: '08:00', 
        endTime: '22:00',   
-       lastFoundDate: ''
+      lastFoundDate: '',
+       doctorDates: {}
     });
 
     const [botLiveStatus, setBotLiveStatus] = useState('idle');
@@ -259,8 +252,9 @@ export default function BotDashboard() {
                             insuranceType: data.insuranceType || prev.insuranceType || 'הכל',
                             endDate: data.endDate || prev.endDate,
                             runInLoop: data.runInLoop !== undefined ? data.runInLoop : prev.runInLoop,
-                            loopFrequency: freq,
+                           loopFrequency: freq,
                             lastFoundDate: data.lastFoundDate || prev.lastFoundDate,
+                            doctorDates: data.doctorDates || prev.doctorDates || {},
                             nextRunTime: data.nextRunTime || null 
                         }));
                         
@@ -271,6 +265,7 @@ export default function BotDashboard() {
                         setConfig(prev => ({
                             ...prev,
                             lastFoundDate: data.lastFoundDate || prev.lastFoundDate,
+                            doctorDates: data.doctorDates || prev.doctorDates || {},
                             nextRunTime: data.nextRunTime !== undefined ? data.nextRunTime : prev.nextRunTime
                         }));
                     }
@@ -445,17 +440,20 @@ export default function BotDashboard() {
                     </div>
 
                     <div className="flex items-center gap-4">
-                        <div className="bg-[#fff9e6] border border-[#fcefc7] px-6 py-3 rounded-2xl hidden lg:flex flex-col items-start shadow-inner min-w-[320px] max-w-md transition-all">
-                            <span className="text-base font-bold text-[#856404] uppercase leading-tight mb-2 opacity-90">התור המוקדם ביותר שנמצא:</span>
-                            {config.lastFoundDate && config.lastFoundDate.includes(' - ') ? (
-                                <div className="flex flex-col">
-                                    <span className="text-4xl font-black text-[#856404] leading-none mb-2">{config.lastFoundDate.split(' - ')[0]}</span>
-                                    <span className="text-lg font-bold text-[#856404] opacity-90 leading-tight">{config.lastFoundDate.split(' - ')[1]}</span>
-                                </div>
-                            ) : (
-                                <span className="text-2xl font-black text-[#856404] leading-tight">{config.lastFoundDate || "טרם נמצאו תורים"}</span>
-                            )}
-                        </div>
+                        {/* מוצג למעלה רק אם לא נבחרו רופאים ספציפיים */}
+                        {config.selectedDoctors.length === 0 && (
+                            <div className="bg-[#fff9e6] border border-[#fcefc7] px-6 py-3 rounded-2xl hidden lg:flex flex-col items-start shadow-inner min-w-[320px] max-w-md transition-all">
+                                <span className="text-base font-bold text-[#856404] uppercase leading-tight mb-2 opacity-90">התור המוקדם ביותר שנמצא:</span>
+                                {config.lastFoundDate && config.lastFoundDate.includes(' - ') ? (
+                                    <div className="flex flex-col">
+                                        <span className="text-4xl font-black text-[#856404] leading-none mb-2">{config.lastFoundDate.split(' - ')[0]}</span>
+                                        <span className="text-lg font-bold text-[#856404] opacity-90 leading-tight">{config.lastFoundDate.split(' - ')[1]}</span>
+                                    </div>
+                                ) : (
+                                    <span className="text-2xl font-black text-[#856404] leading-tight">{config.lastFoundDate || "טרם נמצאו תורים"}</span>
+                                )}
+                            </div>
+                        )}
 
                         <div className="bg-[#f0f9f8] border border-[#d1edea] px-4 py-2 rounded-2xl flex items-center gap-3 shadow-inner">
                             <div className={`w-4 h-4 rounded-full ${botLiveStatus === 'active' ? 'bg-[#00a896] animate-pulse shadow-[0_0_8px_rgba(0,168,150,0.4)]' : 'bg-gray-300'}`}></div>
@@ -634,7 +632,7 @@ export default function BotDashboard() {
                         {config.selectedDoctors.length > 0 && (
                             <div className="mt-6 p-4 bg-[#f0f9f8] border border-[#d1edea] rounded-xl shadow-inner">
                                 <h3 className="text-xl font-bold text-[#005a4c] mb-3">רופאים שנבחרו לסריקה ({config.selectedDoctors.length}):</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                                     {config.selectedDoctors.map(docId => {
                                         // מציאת הרופא מתוך מאגר הנתונים
                                         let docObj = null;
@@ -653,20 +651,29 @@ export default function BotDashboard() {
                                         if (phone.startsWith('טל:')) phone = phone.replace('טל:', '').trim();
 
                                         return (
-                                            <div key={docId} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 relative hover:shadow-md transition-shadow">
+                                            <div key={docId} className="bg-white p-2.5 rounded-lg shadow-sm border border-gray-200 relative hover:shadow-md transition-shadow">
                                                 <button 
                                                     onClick={() => handleDoctorsChange(config.selectedDoctors.filter(id => id !== docId))}
-                                                    className="absolute top-2 left-2 text-gray-300 hover:text-red-500 transition-colors"
+                                                    className="absolute top-1.5 left-1.5 text-gray-400 hover:text-red-500 transition-colors w-5 h-5 flex items-center justify-center bg-gray-50 rounded-md"
                                                     title="הסר רופא"
                                                 >
                                                     ✕
                                                 </button>
-                                                <div className="font-bold text-lg text-gray-800 pe-4">
-                                                    {name} <span className="inline-block ms-1 text-xs font-bold text-[#007cc3] bg-[#e1f0f9] px-2 py-0.5 rounded-full">{service}</span>
+                                                <div className="font-bold text-sm text-gray-800 pe-6 leading-tight mb-1.5">
+                                                    {name} <span className="inline-block ms-1 text-[10px] font-bold text-[#007cc3] bg-[#e1f0f9] px-1.5 py-0.5 rounded-full">{service}</span>
                                                 </div>
-                                                {clinic && <div className="text-sm text-gray-600 mt-2"><span className="font-bold text-gray-700">מרפאה:</span> {clinic}</div>}
-                                                {address && <div className="text-sm text-gray-600"><span className="font-bold text-gray-700">כתובת:</span> {address}</div>}
-                                                {phone && phone !== 'אין טלפון' && <div className="text-sm text-gray-600"><span className="font-bold text-gray-700">טלפון:</span> <span dir="ltr">{phone}</span></div>}
+                                                <div className="space-y-0.5">
+                                                    {clinic && <div className="text-xs text-gray-600 truncate" title={clinic}><span className="font-bold text-gray-700">מרפאה:</span> {clinic}</div>}
+                                                    {address && <div className="text-xs text-gray-600 truncate" title={address}><span className="font-bold text-gray-700">כתובת:</span> {address}</div>}
+                                                    {phone && phone !== 'אין טלפון' && <div className="text-xs text-gray-600"><span className="font-bold text-gray-700">טלפון:</span> <span dir="ltr">{phone}</span></div>}
+                                                </div>
+                                                
+                                                <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-1.5">
+                                                    <span className="text-xs font-bold text-[#005a4c]">תור קרוב:</span>
+                                                    <span className="text-xs font-black text-[#856404] bg-[#fff9e6] px-1.5 py-0.5 rounded border border-[#fcefc7]">
+                                                        {config.doctorDates && config.doctorDates[name] ? config.doctorDates[name] : "טרם נמצא"}
+                                                    </span>
+                                                </div>
                                             </div>
                                         );
                                     })}

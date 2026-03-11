@@ -69,11 +69,30 @@ const isBetterAppointment = (docName, dateStr) => {
  * מעדכן את קובץ הזיכרון בתאריך החדש, הטוב ביותר והעיר שנמצאה
  */
 const updateMemory = (docName, dateStr, city) => {
-    // 1. עדכון קובץ הזיכרון (עבור הדשבורד וההתראות)
+    // 1. עדכון קובץ הזיכרון (עבור מערכת ההתראות ומניעת כפילויות)
     let memory = fs.existsSync(memoryPath) ? JSON.parse(fs.readFileSync(memoryPath, 'utf8')) : {};
     const finalCity = city || "לא צויין יישוב";
     memory[docName] = { date: dateStr, city: finalCity };
     fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
+
+    // --- תוספת: עדכון קובץ ההגדרות (config.json) עבור התצוגה בדשבורד ---
+    try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        
+        // עדכון התור הכללי שמוצג למעלה
+        config.lastFoundDate = `${dateStr} - ${docName} (${finalCity})`;
+        
+        // עדכון התאריך בתוך הריבוע של הרופא הספציפי
+        if (!config.doctorDates) {
+            config.doctorDates = {};
+        }
+        config.doctorDates[docName] = dateStr;
+        
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    } catch (err) {
+        console.error("שגיאה בעדכון קובץ config.json בתצוגה:", err);
+    }
+    // -----------------------------------------------------------------
 
     // 2. רישום בדוח הריצה (עבור כפתור הדוח בדשבורד)
     const reportPath = path.join(process.cwd(), 'reports_history.log');

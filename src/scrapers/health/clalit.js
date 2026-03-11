@@ -140,50 +140,49 @@ async function runClalit(page) {
         await target.selectOption('#SelectedSpecializationCode', specId);
         await page.waitForTimeout(1000);
 
-        // --- לוגיקת החיפוש המעודכנת ---
+        // --- לוגיקת החיפוש החכמה (תומכת בחיפוש לפי שם רופא ישירות) ---
         const sentInThisRun = new Set(); 
-// משיכת מערך הערים מהדשבורד או שימוש בברירת מחדל
-        const citiesToSearch = (config.selectedCities && config.selectedCities.length > 0) 
-            ? config.selectedCities 
-            : ['הרצליה'];
-            
-        // משיכת מערך הרופאים מהדשבורד (אם ריק - יחפש את כולם)
-        const activeDoctorsFilter = (config.selectedDoctors && config.selectedDoctors.length > 0)
-            ? config.selectedDoctors
-            : []; 
+        
+        // רשימת הרופאים לחיפוש (מנקה את ה-ID מהמחרוזת שנשמרת בדשבורד)
+        const activeDoctorsNames = (config.selectedDoctors && config.selectedDoctors.length > 0)
+            ? config.selectedDoctors.map(d => d.split(' - ')[1]) // לוקח רק את השם מתוך ה-Label
+            : [];
 
-        for (const city of citiesToSearch) {
+        // רשימת הערים - אם אין רופאים ואין ערים, רק אז משתמש בברירת מחדל
+        let citiesToSearch = config.selectedCities || [];
+        if (citiesToSearch.length === 0 && activeDoctorsNames.length === 0) {
+            citiesToSearch = ['הרצליה'];
+        }
+
+        // במידה ובחרנו רופאים, נחפש כל רופא בנפרד (בשדה שם הרופא)
+        // במידה ולא, נחפש לפי הערים שנבחרו
+        const searchItems = activeDoctorsNames.length > 0 ? activeDoctorsNames : citiesToSearch;
+        const isDoctorSearch = activeDoctorsNames.length > 0;
+
+        for (const item of searchItems) {
             console.log(`\n===================================`);
-            console.log(`🏙️ מתחיל סריקה בעיר: ${city}`);
+            console.log(`🔍 מתחיל חיפוש עבור ${isDoctorSearch ? 'רופא' : 'עיר'}: ${item}`);
             
-            const cityInput = '#SelectedCityName';
-            await target.click(cityInput);
-            await target.evaluate((selector) => document.querySelector(selector).value = '', cityInput);
-            console.log(`🔎 מזין '${city}'...`);
-            await target.type(cityInput, city, { delay: 250 });
-
-            // המתנה להופעת התפריט
-            await target.waitForSelector('li.ui-menu-item', { state: 'visible', timeout: 15000 });
-            await page.waitForTimeout(1000);
-
-            // בחירה מדויקת מתוך הרשימה לפי טקסט
-            const clicked = await target.evaluate((cityName) => {
-                const items = Array.from(document.querySelectorAll('li.ui-menu-item'));
-                const match = items.find(item => item.innerText.trim() === cityName);
-                if (match) {
-                    match.click();
-                    return true;
-                }
-                return false;
-            }, city);
-
-            if (!clicked) {
-                console.log(`⚠️ לא נמצאה התאמה מדויקת ל-'${city}' ברשימה, מנסה ללחוץ Enter כברירת מחדל.`);
+            if (isDoctorSearch) {
+                // חיפוש לפי שם רופא (נקה את שדה העיר כדי שלא יפריע)
+                await target.evaluate(() => {
+                    const cityInp = document.querySelector('#SelectedCityName');
+                    const docInp = document.querySelector('#DoctorName');
+                    if (cityInp) cityInp.value = '';
+                    if (docInp) docInp.value = '';
+                });
+                await target.type('#DoctorName', item, { delay: 150 });
+            } else {
+                // חיפוש לפי עיר
+                const cityInput = '#SelectedCityName';
+                await target.click(cityInput);
+                await target.evaluate((selector) => document.querySelector(selector).value = '', cityInput);
+                await target.type(cityInput, item, { delay: 200 });
+                await target.waitForSelector('li.ui-menu-item', { state: 'visible', timeout: 10000 });
                 await page.keyboard.press('Enter');
             }
 
-            await page.waitForTimeout(2000);
-
+            await page.waitForTimeout(1000);
             await target.click('#searchBtnSpec');
             await page.waitForTimeout(8000); 
 // בדיקה אם קפצה הודעה שאין תורים פנויים
@@ -286,38 +285,54 @@ async function runClalit(page) {
                 console.log("--- סוף הדפסת דיבוג ---\n");
 
                 if (foundInPage.length > 0) {
-                    // מציאת התור עם התאריך המוקדם ביותר מבין כל אלו שנמצאו בדף הנוכחי
-                    const bestAppt = foundInPage.reduce((prev, curr) => {
+                    // קיבוץ ומציאת התור המוקדם ביותר *עבור כל רופא בנפרד* במקום רק תור אחד כללי
+                    const bestApptsPerDoctor = {};
+                    
+                    for (const appt of foundInPage) {
                         const parseDate = (d) => {
                             const parts = d.split(/[\.\/]/);
                             return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
                         };
-                        return parseDate(curr.dateStr) < parseDate(prev.dateStr) ? curr : prev;
-                    });
-
-                    const key = `${bestAppt.doctor}-${bestAppt.dateStr}`;
-                    // שליחה רק אם התור הזה לא נשלח בסבב הנוכחי וגם טוב יותר מהזיכרון ההיסטורי
-                    if (!sentInThisRun.has(key)) {
-                        try {
-                            if (isBetterAppointment(bestAppt.doctor, bestAppt.dateStr)) {
-                                // שליחה עם העיר האמיתית (actualCity) שנשלפה מהכרטיסייה
-                                await sendEmailNotification(bestAppt.doctor, bestAppt.actualCity, bestAppt.dateStr);
-                                updateMemory(bestAppt.doctor, bestAppt.dateStr, bestAppt.actualCity);
-
-                                const report = createExecutionReport(stats, {
-                                    familyMember: config.familyMember || 'ראשי',
-                                    specialization: config.selectedSpecialization || 'לא הוגדר',
-                                    city: bestAppt.actualCity,
-                                    doctor: bestAppt.doctor,
-                                    dateStr: bestAppt.dateStr
-                                });
-                                console.log(report);
-                            } else {
-                                console.log(`   -> נמצא תור ל-${bestAppt.doctor}, אך הוא אינו מוקדם יותר מהתור השמור בזיכרון.`);
+                        
+                        if (!bestApptsPerDoctor[appt.doctor]) {
+                            bestApptsPerDoctor[appt.doctor] = appt;
+                        } else {
+                            const currentBestDate = parseDate(bestApptsPerDoctor[appt.doctor].dateStr);
+                            const newDate = parseDate(appt.dateStr);
+                            if (newDate < currentBestDate) {
+                                bestApptsPerDoctor[appt.doctor] = appt;
                             }
-                            sentInThisRun.add(key);
-                        } catch (mailErr) {
-                            console.error(`⚠️ שגיאה בעיבוד ושליחת התור הטוב ביותר:`, mailErr.message);
+                        }
+                    }
+
+                    // מעבר על כל התורים הטובים ביותר של כל רופא בנפרד
+                    for (const doctorName in bestApptsPerDoctor) {
+                        const bestAppt = bestApptsPerDoctor[doctorName];
+                        const key = `${bestAppt.doctor}-${bestAppt.dateStr}`;
+                        
+                        // שליחה רק אם התור הזה לא נשלח בסבב הנוכחי וגם טוב יותר מהזיכרון ההיסטורי
+                        if (!sentInThisRun.has(key)) {
+                            try {
+                                if (isBetterAppointment(bestAppt.doctor, bestAppt.dateStr)) {
+                                    // שליחה עם העיר האמיתית (actualCity) שנשלפה מהכרטיסייה
+                                    await sendEmailNotification(bestAppt.doctor, bestAppt.actualCity, bestAppt.dateStr);
+                                    updateMemory(bestAppt.doctor, bestAppt.dateStr, bestAppt.actualCity);
+
+                                    const report = createExecutionReport(stats, {
+                                        familyMember: config.familyMember || 'ראשי',
+                                        specialization: config.selectedSpecialization || 'לא הוגדר',
+                                        city: bestAppt.actualCity,
+                                        doctor: bestAppt.doctor,
+                                        dateStr: bestAppt.dateStr
+                                    });
+                                    console.log(report);
+                                } else {
+                                    console.log(`   -> נמצא תור ל-${bestAppt.doctor}, אך הוא אינו מוקדם יותר מהתור השמור בזיכרון.`);
+                                }
+                                sentInThisRun.add(key);
+                            } catch (mailErr) {
+                                console.error(`⚠️ שגיאה בעיבוד ושליחת התור הטוב ביותר עבור ${bestAppt.doctor}:`, mailErr.message);
+                            }
                         }
                     }
                 }
