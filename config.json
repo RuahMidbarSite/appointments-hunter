@@ -3,11 +3,16 @@
   "userCode": "WL13044",
   "password": "Ruah816#",
   "familyMember": "אניגמה דיי",
-  "selectedCities": [],
-  "includeSurrounding": true,
-  "selectedDoctors": [
-    "7CF496A4BF519BFF9BA81F92474E4F95 - בן גוריון - רפואה יועצת - כפר סבא"
+  "selectedCities": [
+    "תל אביב - יפו",
+    "נתניה",
+    "פתח תקווה",
+    "הרצליה",
+    "חולון",
+    "רעננה"
   ],
+  "includeSurrounding": true,
+  "selectedDoctors": [],
   "selectedGroup": "32",
   "selectedSpecialization": "32",
   "insuranceType": "הכל",
@@ -19,5 +24,6 @@
   "lastFoundDate": "24.03.2026 - ד\"ר דאבוש קובי (עיר לא ידועה)",
   "doctorDates": {},
   "nextRunTime": null,
-  "botStatus": "idle"
+  "botStatus": "idle",
+  "selectedDoctorNames": []
 }

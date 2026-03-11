@@ -93,7 +93,16 @@ async function runClalit(page) {
         console.log("ממתין לסיום תהליך ההתחברות...");
         // ממתין שההתחברות תצליח והמסך הראשי ייטען (לפי כפתור שירותי האון-ליין)
         await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
-        
+       // קוד מעודכן: מנגנון הזרקה לדפדפן לטיפול אוטומטי בפופאפ חוסר פעילות לפי המזהה הייחודי
+        await page.evaluate(() => {
+            setInterval(() => {
+                const continueButton = document.querySelector('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lblInnerText');
+                if (continueButton && continueButton.offsetParent !== null) {
+                    console.log('מזהה פופאפ חוסר פעילות של הכללית, לוחץ על המשך...');
+                    continueButton.click();
+                }
+            }, 15000);
+        });
         // בדיקה אם הוגדר בן משפחה בדשבורד - תוקן לשם המשתנה הנכון
         if (config.familyMember && config.familyMember.trim() !== '') {
             console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
@@ -128,11 +137,30 @@ async function runClalit(page) {
         await target.click('#ProfessionVisitButton');
         await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
 
-        // בחירה דינמית מתוך קובץ ה-config
+        // 1. הגדרת המשתנים קודם כדי למנוע שגיאת undefined
         const groupId = config.selectedGroup || '32';
         const specId = config.selectedSpecialization || groupId;
 
         console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
+        
+        // 2. בחירת קבוצה ומקצוע
+        await target.selectOption('#SelectedGroupCode', groupId);
+        await page.waitForTimeout(3000); 
+        await target.selectOption('#SelectedSpecializationCode', specId);
+        
+        // 3. המתנה קצרה לרינדור השדות וביצוע בדיקת דיבוג מעודכנת
+        await page.waitForTimeout(2000);
+        const debugFields = await target.evaluate(() => {
+            const doc = document.querySelector('#DoctorName');
+            const city = document.querySelector('#SelectedCityName');
+            return {
+                doctorFieldExists: !!doc,
+                cityFieldExists: !!city,
+                docVisible: doc ? (doc.offsetWidth > 0 && doc.offsetHeight > 0) : false,
+                docId: doc ? doc.id : 'n/a'
+            };
+        });
+        console.log("🔍 [DEBUG] מצב שדות לאחר בחירת מקצוע:", debugFields);
         await target.selectOption('#SelectedGroupCode', groupId);
         
         // המתנה לשינוי ב-DOM של רשימת המקצועות
@@ -143,9 +171,9 @@ async function runClalit(page) {
         // --- לוגיקת החיפוש החכמה (תומכת בחיפוש לפי שם רופא ישירות) ---
         const sentInThisRun = new Set(); 
         
-        // רשימת הרופאים לחיפוש (מנקה את ה-ID מהמחרוזת שנשמרת בדשבורד)
-        const activeDoctorsNames = (config.selectedDoctors && config.selectedDoctors.length > 0)
-            ? config.selectedDoctors.map(d => d.split(' - ')[1]) // לוקח רק את השם מתוך ה-Label
+        // רשימת הרופאים לחיפוש (משתמש במערך השמות הנקיים שיצרנו בדשבורד)
+        const activeDoctorsNames = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0)
+            ? config.selectedDoctorNames
             : [];
 
         // רשימת הערים - אם אין רופאים ואין ערים, רק אז משתמש בברירת מחדל
@@ -159,27 +187,88 @@ async function runClalit(page) {
         const searchItems = activeDoctorsNames.length > 0 ? activeDoctorsNames : citiesToSearch;
         const isDoctorSearch = activeDoctorsNames.length > 0;
 
+       // --- התיקון הקריטי: הגדרת רשימת הרופאים לסינון ---
+        // סינון התוצאות שנשאבו מהדף חייב להתבצע מול שמות הרופאים (ולא מול ה-ID שלהם)
+        const activeDoctorsFilter = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0)
+            ? config.selectedDoctorNames
+            : [];
+
         for (const item of searchItems) {
             console.log(`\n===================================`);
             console.log(`🔍 מתחיל חיפוש עבור ${isDoctorSearch ? 'רופא' : 'עיר'}: ${item}`);
             
             if (isDoctorSearch) {
-                // חיפוש לפי שם רופא (נקה את שדה העיר כדי שלא יפריע)
+                console.log(`🔎 מזהה שדה 'שם הרופא' ומזין: ${item}...`);
+                
+                // מציאת ה-ID של שדה הרופא בצורה דינמית על סמך הטקסט "שם הרופא/ה" בטבלה
+                const dynamicDocInputId = await target.evaluate(() => {
+                    const tds = Array.from(document.querySelectorAll('td.title'));
+                    const docTd = tds.find(td => td.textContent && td.textContent.includes('שם הרופא/ה'));
+                    if (docTd && docTd.parentElement) {
+                        const input = docTd.parentElement.querySelector('input[type="text"]');
+                        if (input && input.id) return '#' + input.id;
+                    }
+                    return null;
+                });
+
+                if (!dynamicDocInputId) {
+                    console.log("❌ שגיאה: לא מצאתי את שדה 'שם הרופא/ה' במסך. מדלג...");
+                    continue; 
+                }
+
+                // ניקוי שדות אחרים (עיר) כדי שלא יפריעו
                 await target.evaluate(() => {
                     const cityInp = document.querySelector('#SelectedCityName');
-                    const docInp = document.querySelector('#DoctorName');
                     if (cityInp) cityInp.value = '';
-                    if (docInp) docInp.value = '';
                 });
-                await target.type('#DoctorName', item, { delay: 150 });
-            } else {
-                // חיפוש לפי עיר
+
+                // פוקוס, ניקוי והקלדה מבוקרת בשדה הרופא
+                await target.click(dynamicDocInputId, { clickCount: 3 });
+                await page.keyboard.press('Backspace');
+                await target.type(dynamicDocInputId, item, { delay: 150 });
+           } else {
+               // חיפוש לפי עיר - ניקוי עמוק למניעת שרשור שמות ערים
                 const cityInput = '#SelectedCityName';
-                await target.click(cityInput);
-                await target.evaluate((selector) => document.querySelector(selector).value = '', cityInput);
-                await target.type(cityInput, item, { delay: 200 });
-                await target.waitForSelector('li.ui-menu-item', { state: 'visible', timeout: 10000 });
-                await page.keyboard.press('Enter');
+                
+                // גלילה למעלה כדי לוודא ששדה החיפוש גלוי
+                await target.evaluate(() => window.scrollTo(0, 0));
+                await page.waitForTimeout(500);
+                
+                // ניקוי עמוק של השדה הכולל בחירה מרובה, מחיקה במקלדת ורענון אירועים
+                await target.click(cityInput, { clickCount: 3 });
+                await page.keyboard.press('Backspace');
+                await target.evaluate((selector) => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        el.value = '';
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }, cityInput);
+                await page.waitForTimeout(500);
+
+                console.log(`🔎 מזין עיר: ${item}...`);
+                await target.type(cityInput, item, { delay: 250 });
+                
+
+                // המתנה להופעת התפריט ובחירה מתוכו
+                await target.waitForSelector('li.ui-menu-item', { state: 'visible', timeout: 15000 });
+                await page.waitForTimeout(1000);
+
+                const clicked = await target.evaluate((cityName) => {
+                    const items = Array.from(document.querySelectorAll('li.ui-menu-item'));
+                    const match = items.find(i => i.innerText.trim() === cityName);
+                    if (match) {
+                        match.click();
+                        return true;
+                    }
+                    return false;
+                }, item);
+
+                if (!clicked) {
+                    console.log(`⚠️ לא נמצאה התאמה מדויקת ל-'${item}' ברשימה, מנסה Enter.`);
+                    await page.keyboard.press('Enter');
+                }
             }
 
             await page.waitForTimeout(1000);
@@ -189,7 +278,7 @@ async function runClalit(page) {
            // זיהוי ההודעה ישירות דרך כפתור ה-X (ID: CloseButton)
             const closeBtn = await target.$('#CloseButton');
             if (closeBtn && await closeBtn.isVisible()) {
-                console.log(`ℹ️ זוהתה הודעת 'אין תורים פנויים' ב-${city}. סוגר אותה כעת...`);
+                console.log(`ℹ️ זוהתה הודעת 'אין תורים פנויים' עבור: ${item}. סוגר אותה כעת...`);
                 try {
                     // לחיצה על ה-X בתוך הפריים
                     await closeBtn.click();
@@ -217,11 +306,11 @@ async function runClalit(page) {
             let pageNum = 1;
 
             while (hasNextPage) {
-                console.log(`📄 סורק דף תוצאות מספר ${pageNum} ב${city}...`);
+                console.log(`📄 סורק דף תוצאות מספר ${pageNum} עבור ${item}...`);
                 // הסרנו את הגדרת activeDoctorsFilter מכאן כי היא כבר הוגדרה למעלה
                 // --- קוד דיבוג: צילום מסך ---
-                await page.screenshot({ path: `debug_${city}_page_${pageNum}.png` });
-                console.log(`📸 שמרתי צילום מסך בתיקייה הראשית: debug_${city}_page_${pageNum}.png`);
+                await page.screenshot({ path: `debug_${item}_page_${pageNum}.png` });
+                console.log(`📸 שמרתי צילום מסך בתיקייה הראשית: debug_${item}_page_${pageNum}.png`);
                 // שולפים את כל המידע הגולמי מתוך הדף ללא שום סינון כדי להדפיס לטרמינל
                const rawDataFromPage = await target.evaluate(() => {
                     return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
@@ -241,15 +330,16 @@ async function runClalit(page) {
                 console.log("\n--- תחילת הדפסת דיבוג: מה הבוט רואה כרגע בדף ---");
                 const foundInPage = [];
                 
-                // עוברים על כל רופא שהבוט ראה, מדפיסים אותו, ומפעילים את הסינון שלנו מחוץ לדפדפן
-                for (const item of rawDataFromPage) {
-                    console.log(`* קורא כרטיסייה: שם: [${item.docNameRaw.trim()}], תאריך: [${item.dateTextRaw.trim()}]`);
+                // עוברים על כל תור שהבוט ראה, מדפיסים אותו, ומפעילים את הסינון
+                // שינינו את שם המשתנה ל-appt כדי לא לדרוס את המשתנה item של העיר מהלולאה החיצונית
+                for (const appt of rawDataFromPage) {
+                    console.log(`* קורא כרטיסייה: שם: [${appt.docNameRaw.trim()}], תאריך: [${appt.dateTextRaw.trim()}]`);
                     
-                    // תמיכה בפורמט תאריך עם נקודות (כמו 29.06.2026) או סלאשים (29/06/2026)
-                    const match = item.dateTextRaw.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
+                    // תמיכה בפורמט תאריך עם נקודות או סלאשים
+                    const match = appt.dateTextRaw.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
                     
                     if (!match) {
-                        console.log(`   -> דילגתי: לא הצלחתי למצוא מבנה של תאריך מלא (DD/MM/YYYY) בטקסט הזה.`);
+                        console.log(`   -> דילגתי: לא הצלחתי למצוא מבנה של תאריך מלא בטקסט הזה.`);
                         continue;
                     }
                     
@@ -257,30 +347,27 @@ async function runClalit(page) {
                     const inRange = !config.endDate || (isoDate <= config.endDate);
                     
                     if (!inRange) {
-                        console.log(`   -> דילגתי: התאריך ${isoDate} מאוחר מתאריך היעד ${config.endDate}.`);
+                        console.log(`   -> דילגתי: התאריך ${isoDate} מאוחר מתאריך היעד.`);
                         continue;
                     }
                     
-                    const isPreferred = activeDoctorsFilter.length === 0 || activeDoctorsFilter.some(name => item.docNameRaw.includes(name));
+                    const isPreferred = activeDoctorsFilter.length === 0 || activeDoctorsFilter.some(name => appt.docNameRaw.includes(name));
                     
                     if (!isPreferred) {
-                        console.log(`   -> דילגתי: הרופא אינו ברשימת המועדפים שהוגדרה.`);
+                        console.log(`   -> דילגתי: הרופא אינו ברשימת המועדפים.`);
                         continue;
                     }
 
-                    // סינון לפי עיר אם הצ'קבוקס כבוי (ותמיכה בתורים טלפוניים ללא ציון עיר)
-                    if (!config.includeSurrounding && item.actualCity !== city && item.actualCity !== 'עיר לא ידועה' && !item.actualCity.includes('לא צויין')) {
-                        console.log(`   -> דילגתי: התור בעיר ${item.actualCity} ולא ב-${city}, והצ'קבוקס כבוי.`);
+                    // סינון לפי עיר אם הצ'קבוקס כבוי - עכשיו משווים ל-item התקין
+                    if (!config.includeSurrounding && appt.actualCity !== item && appt.actualCity !== 'עיר לא ידועה' && !appt.actualCity.includes('לא צויין')) {
+                        console.log(`   -> דילגתי: התור בעיר ${appt.actualCity} ולא ב-${item}, והצ'קבוקס כבוי.`);
                         continue;
                     }
 
-                    // --- התיקון הקריטי: שמירת התאריך הנקי בלבד ---
-                    // משתמשים במשתנה match שכבר יצרנו קודם כדי לקחת רק את התאריך הנקי (למשל "24.03.2026")
                     const cleanDate = match[0];
 
                     console.log(`   -> ✅ התור עבר את כל הסינונים וישלח למייל!`);
-                    // מעבירים את cleanDate במקום את הטקסט הגולמי
-                    foundInPage.push({ doctor: item.docNameRaw.trim(), dateStr: cleanDate, actualCity: item.actualCity });
+                    foundInPage.push({ doctor: appt.docNameRaw.trim(), dateStr: cleanDate, actualCity: appt.actualCity });
                 }
                 console.log("--- סוף הדפסת דיבוג ---\n");
 
@@ -348,10 +435,19 @@ async function runClalit(page) {
                     await page.waitForTimeout(8000); // זמן טעינה ארוך יותר בין דפים
                     pageNum++;
                 } else {
-                    console.log("🏁 לא נמצאו דפים נוספים בעיר זו.");
+                    console.log(`🏁 סיימתי לסרוק את כל הדפים עבור: ${item}.`);
                     hasNextPage = false;
                 }
             }
+            
+            // חזרה לראש הדף ואיפוס השדה כהכנה לעיר הבאה
+            await target.evaluate((sel) => {
+                window.scrollTo(0, 0);
+                const el = document.querySelector(sel);
+                if (el) el.value = '';
+            }, '#SelectedCityName');
+            
+            await page.waitForTimeout(2000);
         }
 
        console.log(`\n✅ סריקת כל הערים והדפים הסתיימה!`);
