@@ -6,7 +6,24 @@ const fs = require('fs'); // נוסף כדי לאפשר קריאה של קובץ
 // ייבוא מנגנוני הלולאה, הדיווח והזיכרון (כולל בדיקת תאריך מוקדם)
 const { setBotStatus, waitMinutes, isBetterAppointment, updateMemory } = require('../../utils/scheduler/loopManager');
 const { createExecutionReport } = require('../../utils/scheduler/reportGenerator');
-
+// פונקציה לזיהוי ולהתאוששות מדף שגיאה של כללית
+async function handleResponseSorry(page, targetUrl) {
+    const currentUrl = page.url();
+    console.log(`🌐 [URL-CHECK] כתובת נוכחית: ${currentUrl}`);
+    if (currentUrl.includes('ResponseSorry')) {
+        console.log('⚠️ זוהה דף שגיאה (ResponseSorry). מנקה עוגיות ומאתחל סשן חדש...');
+        // ניקוי עוגיות כדי לאפס את הסשן המת ולקבל דף לוגין נקי
+        const context = page.context();
+        await context.clearCookies();
+        console.log('🍪 עוגיות נוקו. מנווט מחדש...');
+        await page.goto(targetUrl, { waitUntil: 'networkidle' });
+        await page.waitForTimeout(3000);
+        const urlAfter = page.url();
+        console.log(`🌐 [URL-AFTER-RECOVERY] כתובת אחרי ניקוי: ${urlAfter}`);
+        return true;
+    }
+    return false;
+}
 const transporter = nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE,
     auth: {
@@ -33,14 +50,28 @@ async function runClalit(page) {
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
     const stats = { startTime: new Date() };
 
+const MAIN_URL = 'https://e-services.clalit.co.il/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx';
     console.log("--- מתחיל סריקה עבור כללית (מצב Stealth פעיל) ---");
    try {
         // בדיקה אם אנחנו כבר מחוברים בדף שירותי האון-ליין (חוסך טעינה מחדש)
+const currentUrlAtStart = page.url();
+        console.log(`🌐 [START] כתובת בתחילת הסבב: ${currentUrlAtStart}`);
+        
+        // אם אנחנו בדף שגיאה - נווט קודם ל-MAIN_URL לפני שבודקים isLoggedIn
+        if (currentUrlAtStart.includes('ResponseSorry') || currentUrlAtStart === 'about:blank') {
+            console.log("🔄 מתחיל מדף שגיאה/ריק – מנווט ל-MAIN_URL לפני בדיקת לוגין...");
+            await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
+            await page.waitForTimeout(3000);
+            console.log(`🌐 [AFTER-GOTO] כתובת אחרי ניווט: ${page.url()}`);
+        }
+
         const isLoggedIn = await page.$('text="שירותי האון־ליין"').catch(() => null);
+        console.log(`🔐 [LOGIN-CHECK] מחובר? ${isLoggedIn ? 'כן' : 'לא'}`);
         
         if (!isLoggedIn) {
             console.log("🛡️ לא מזוהה סשן פעיל, טוען דף כניסה או מרענן...");
-            await page.goto('https://e-services.clalit.co.il/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx', { waitUntil: 'commit' });
+            await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
+            await handleResponseSorry(page, MAIN_URL);
         } else {
             console.log("⚡ נמצא סשן פעיל! ממשיך לסריקה ללא לוגין מחדש.");
         }
@@ -93,16 +124,27 @@ async function runClalit(page) {
         console.log("ממתין לסיום תהליך ההתחברות...");
         // ממתין שההתחברות תצליח והמסך הראשי ייטען (לפי כפתור שירותי האון-ליין)
         await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
-       // קוד מעודכן: מנגנון הזרקה לדפדפן לטיפול אוטומטי בפופאפ חוסר פעילות לפי המזהה הייחודי
-        await page.evaluate(() => {
-            setInterval(() => {
-                const continueButton = document.querySelector('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lblInnerText');
-                if (continueButton && continueButton.offsetParent !== null) {
-                    console.log('מזהה פופאפ חוסר פעילות של הכללית, לוחץ על המשך...');
-                    continueButton.click();
-                }
-            }, 15000);
-        });
+     await page.evaluate(() => {
+    setInterval(() => {
+        const continueButton = document.querySelector('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lnkSubButton');
+        if (continueButton) {
+            const rect = continueButton.getBoundingClientRect();
+            const isVisible = rect.width > 0 || rect.height > 0 || continueButton.offsetParent !== null;
+            if (isVisible) {
+                console.log('מזהה פופאפ חוסר פעילות של הכללית, לוחץ על המשך...');
+                continueButton.click();
+                return;
+            }
+        }
+        // גיבוי - חיפוש לפי טקסט "המשך" אם ה-ID לא עובד
+        const allLinks = Array.from(document.querySelectorAll('a, button'));
+        const continueByText = allLinks.find(el => el.innerText && el.innerText.trim() === 'המשך');
+        if (continueByText) {
+            console.log('מזהה פופאפ חוסר פעילות (לפי טקסט), לוחץ על המשך...');
+            continueByText.click();
+        }
+    }, 3000); // כל 3 שניות
+});
         // בדיקה אם הוגדר בן משפחה בדשבורד - תוקן לשם המשתנה הנכון
         if (config.familyMember && config.familyMember.trim() !== '') {
             console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
@@ -274,6 +316,11 @@ async function runClalit(page) {
             await page.waitForTimeout(1000);
             await target.click('#searchBtnSpec');
             await page.waitForTimeout(8000); 
+            // בדיקת ResponseSorry אחרי לחיצה על חיפוש
+            if (await handleResponseSorry(page, MAIN_URL)) {
+                console.log('🔄 הדף חזר לאחר שגיאה – מפסיק חיפוש נוכחי וממשיך לפריט הבא.');
+                continue;
+            }
 // בדיקה אם קפצה הודעה שאין תורים פנויים
            // זיהוי ההודעה ישירות דרך כפתור ה-X (ID: CloseButton)
             const closeBtn = await target.$('#CloseButton');
@@ -452,8 +499,19 @@ async function runClalit(page) {
 
        console.log(`\n✅ סריקת כל הערים והדפים הסתיימה!`);
 
-    } catch (error) {
+   } catch (error) {
         console.error("❌ שגיאה במהלך הבוט:", error.message);
+        // אם הבעיה היא ResponseSorry או timeout – מנסה לחזור מיד לסבב חדש
+        const currentUrl = page.url();
+        if (currentUrl.includes('ResponseSorry') || error.message.includes('Timeout')) {
+            console.log('🔄 זוהתה שגיאת סשן – מנקה עוגיות ומתחיל סבב חדש מיד...');
+            try {
+                await page.context().clearCookies();
+                await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
+            } catch (e) {}
+            setBotStatus('idle');
+            return runClalit(page);
+        }
     } finally {
         // כיבוי הנורה בדשבורד בסיום סבב הסריקה
         setBotStatus('idle');
@@ -462,20 +520,68 @@ async function runClalit(page) {
         const configRefresh = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
         
         if (configRefresh.runInLoop) {
-            const frequencyRange = configRefresh.loopFrequency || "10-15";
+    const frequencyRange = configRefresh.loopFrequency || "10-15";
             console.log(`⏳ סבב הסתיים. הדפדפן נשאר פתוח. ממתין ${frequencyRange} דקות...`);
-                        
-            const continueLoop = await waitMinutes(frequencyRange);
-            
-            if (continueLoop) {
+
+          // keepalive - מחכה בלולאה ושולח בקשה באופן רנדומלי
+            const [totalMin, totalMax] = frequencyRange.split('-').map(Number);
+            const totalWaitMs = (Math.floor(Math.random() * (totalMax - totalMin + 1)) + totalMin) * 60 * 1000;
+            console.log(`🎲 נבחר זמן המתנה אקראי של ${totalWaitMs / 60000} דקות לסבב זה.`);
+
+            // שמירת זמן הריצה הבא ב-config כדי שהדשבורד יציג אותו נכון
+            try {
+                const cfgForTimer = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                cfgForTimer.nextRunTime = Date.now() + totalWaitMs;
+                fs.writeFileSync('./config.json', JSON.stringify(cfgForTimer, null, 2));
+            } catch (e) {}
+
+            let elapsed = 0;
+            while (elapsed < totalWaitMs) {
+                // זמן המתנה רנדומלי בין 90 ל-150 שניות כדי לא להיראות מכאני
+                const randomWait = (Math.floor(Math.random() * 61) + 90) * 1000;
+                const sleepTime = Math.min(randomWait, totalWaitMs - elapsed);
+                await new Promise(resolve => setTimeout(resolve, sleepTime));
+                elapsed += sleepTime;
+
+                if (elapsed < totalWaitMs) {
+                    console.log(`💓 [KEEPALIVE] פועל... (${new Date().toLocaleTimeString()})`);
+                    try {
+                        const currentUrl = page.url();
+                        console.log(`🌐 [KEEPALIVE] כתובת נוכחית: ${currentUrl}`);
+                        if (!currentUrl.includes('ResponseSorry')) {
+                            // לחיצה על כפתור המשך אם קיים - מחוץ לדפדפן דרך Playwright
+                            const popupBtn = await page.$('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lnkSubButton');
+                            if (popupBtn) {
+                                const isVisible = await popupBtn.isVisible().catch(() => false);
+                                if (isVisible) {
+                                    console.log(`🖱️ [KEEPALIVE] מזהה פופאפ – לוחץ על המשך...`);
+                                    await popupBtn.click().catch(() => {});
+                                }
+                            }
+                            // דפיקה קלה על השרת
+                            await page.evaluate(() => {
+                                fetch('/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx', { method: 'HEAD' }).catch(() => {});
+                            });
+                            console.log(`✅ [KEEPALIVE] בקשה נשלחה לשרת בהצלחה`);
+                        } else {
+                            console.log(`⚠️ [KEEPALIVE] דף שגיאה פעיל – לא שולח בקשה`);
+                        }
+                    } catch (e) {
+                        console.log('⚠️ [KEEPALIVE] שגיאה:', e.message);
+                    }
+                }
+            }
+
+            const continueLoop = true; // המתנה הסתיימה, ממשיכים לסבב הבא
+    if (continueLoop) {
                 console.log("🔄 מבצע רענון ומתחיל סבב חדש על אותו דפדפן...");
-                // רענון קל כדי "להעיר" את הסשן לפני הסריקה
                 await page.reload({ waitUntil: 'commit' }).catch(() => {});
+                await handleResponseSorry(page, MAIN_URL);
                 return runClalit(page); 
             }
+  console.log("🏁 הבוט סיים את עבודתו.");
         }
-        console.log("🏁 הבוט סיים את עבודתו.");
-    }
-}
+    } // סוף finally
+} // סוף runClalit
 
 module.exports = { runClalit };

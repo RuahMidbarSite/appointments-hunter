@@ -4,12 +4,7 @@
   "password": "Ruah816#",
   "familyMember": "אניגמה דיי",
   "selectedCities": [
-    "תל אביב - יפו",
-    "נתניה",
-    "פתח תקווה",
-    "הרצליה",
-    "חולון",
-    "רעננה"
+    "הרצליה"
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
@@ -17,13 +12,15 @@
   "selectedSpecialization": "32",
   "insuranceType": "הכל",
   "endDate": "",
-  "runInLoop": false,
+  "runInLoop": true,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "24.03.2026 - ד\"ר דאבוש קובי (עיר לא ידועה)",
-  "doctorDates": {},
-  "nextRunTime": null,
+  "lastFoundDate": "15.03.2026 - ד\"ר דאבוש קובי (עיר לא ידועה)",
+  "doctorDates": {
+    "ד\"ר דאבוש קובי": "15.03.2026"
+  },
+  "nextRunTime": 1773342713199,
   "botStatus": "idle",
   "selectedDoctorNames": []
 }
