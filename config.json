@@ -3,16 +3,12 @@
   "userCode": "WL13044",
   "password": "Ruah816#",
   "familyMember": "אניגמה דיי",
-  "loginMode": "sms",
-  "selectedCities": [
-    "הרצליה"
-  ],
+  "loginMode": "password",
+  "selectedCities": [],
   "includeSurrounding": true,
-  "selectedDoctors": [
-    "892024EBCD1146AA33A5B76C21647750 - ד\"ר פנחסוב פנחס - הרצליה"
-  ],
-  "selectedGroup": "31",
-  "selectedSpecialization": "31",
+  "selectedDoctors": [],
+  "selectedGroup": "1059",
+  "selectedSpecialization": "1059",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
@@ -56,9 +52,7 @@
   },
   "loginMethod": "password",
   "otpCode": "",
-  "nextRunTime": 1773400780929,
+  "nextRunTime": null,
   "botStatus": "idle",
-  "selectedDoctorNames": [
-    "ד\"ר פנחס פנחסוב"
-  ]
+  "selectedDoctorNames": []
 }

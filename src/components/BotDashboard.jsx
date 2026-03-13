@@ -10,6 +10,18 @@ import { AVAILABLE_DOCTORS as neurologyDoctors } from '../scrapers/health/consta
 import { AVAILABLE_DOCTORS as cardioDoctors } from '../scrapers/health/constants/cardiology';
 import { AVAILABLE_DOCTORS as endoDoctors } from '../scrapers/health/constants/Endocrinology';
 import { AVAILABLE_DOCTORS as dermDoctors } from '../scrapers/health/constants/Dermatology';
+import { AVAILABLE_DOCTORS as hematoDoctors } from '../scrapers/health/constants/Hematology';
+import { AVAILABLE_DOCTORS as rheumaDoctors } from '../scrapers/health/constants/Rheumatology';
+import { AVAILABLE_DOCTORS as entDoctors } from '../scrapers/health/constants/Otolaryngology';
+import { AVAILABLE_DOCTORS as emgDoctors } from '../scrapers/health/constants/EMG';
+import { AVAILABLE_DOCTORS as radioDoctors } from '../scrapers/health/constants/Radiology';
+import { AVAILABLE_DOCTORS as ultraDoctors } from '../scrapers/health/constants/ultrasound';
+import { AVAILABLE_DOCTORS as geriDoctors } from '../scrapers/health/constants/Geriatrics';
+import { AVAILABLE_DOCTORS as plasticDoctors } from '../scrapers/health/constants/PlasticSurgery';
+import { AVAILABLE_DOCTORS as proctoDoctors } from '../scrapers/health/constants/Proctology';
+import { AVAILABLE_DOCTORS as hepatoDoctors } from '../scrapers/health/constants/Hepatology';
+import { AVAILABLE_DOCTORS as allergyDoctors } from '../scrapers/health/constants/Allergy';
+import { AVAILABLE_DOCTORS as oncoDoctors } from '../scrapers/health/constants/oncology';
 
 const DOCTORS_DATABASE = {
     "אורולוגיה": urologyDoctors,
@@ -17,8 +29,19 @@ const DOCTORS_DATABASE = {
     "גסטרואנטרולוגיה": gastroDoctors,
     "נוירולוגיה": neurologyDoctors,
    "קרדיולוגיה": cardioDoctors,
-    "אנדוקרינולוגיה": endoDoctors,
-    "עור": dermDoctors
+   "עור": dermDoctors,
+    "המטולוגיה": hematoDoctors,
+    "ראומטולוגיה": rheumaDoctors,
+    "אף אוזן גרון": entDoctors,
+    "EMG": emgDoctors,
+    "רנטגן": radioDoctors,
+    "אולטרסאונד": ultraDoctors,
+    "גריאטריה": geriDoctors,
+    "כירורגיה פלסטית": plasticDoctors,
+    "פרוקטולוגיה": proctoDoctors,
+    "כבד": hepatoDoctors,
+    "אלרגיה": allergyDoctors,
+    "אונקולוגיה": oncoDoctors
 };
 
 const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObject = false, focusClass, isMulti = true }) => {
@@ -51,7 +74,23 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
         if (!isObject) return String(selected.join(', '));
         return selected.map(val => {
             const found = (options || []).find(o => String(o.key || o.id) === String(val));
-            return found ? String(found.shortLabel || found.label || found.id) : String(val);
+            if (!found) return String(val);
+        // אם מצאנו את הרופא ויש לו label עם |, נציג שם ועיר
+        if (found.label && found.label.includes('|')) {
+            const parts = found.label.split('|').map(p => p.trim());
+            return `${parts[0]} (${parts[1]})`;
+        }
+ if (!found) return String(val);
+            
+            // שימוש ב-shortLabel שבנינו ב-getDoctorsList הכולל שם ועיר מדויקים
+            if (found.shortLabel) return found.shortLabel;
+
+            // גיבוי למקרה שאין shortLabel מוכן
+            if (found.label && found.label.includes('|')) {
+                const parts = found.label.split('|').map(p => p.trim());
+                return `${parts[0]} (${parts[1]})`;
+            }
+            return String(found.label || found.id);
         }).join(', ');
     };
 
@@ -90,12 +129,13 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
                         const value = isObject ? (option.key || option.id) : option;
                         const labelStr = isObject ? option.label : String(option);
                         const isChecked = selected.includes(value);
-                        const name = labelStr.includes('|') ? labelStr.split('|')[0].trim() : labelStr;
+// שימוש בתווית המוכנה (shortLabel) שכוללת שם ועיר, או ברירת מחדל
+const displayName = option.shortLabel || (labelStr.includes('|') ? labelStr.split('|')[0].trim() : labelStr);
 
                         return (
                             <div key={String(value)} className={`flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer text-xl border-b border-gray-50 ${isChecked ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-800'}`} onClick={() => toggleOption(option)}>
                                 {isMulti && <input type="checkbox" className="ml-3 w-5 h-5" checked={!!isChecked} readOnly />}
-                                <span className="flex-1 text-right">{name}</span>
+                                <span className="flex-1 text-right">{displayName}</span>
                             </div>
                         );
                     }) : <div className="p-4 text-xl text-gray-500 text-center">אין תוצאות</div>}
@@ -216,10 +256,30 @@ export default function BotDashboard() {
         if (!spec) return [];
         const matchedKey = Object.keys(DOCTORS_DATABASE).find(key => spec.name.includes(key));
         let list = matchedKey ? DOCTORS_DATABASE[matchedKey] : [];
+        
         if (config.insuranceType === 'כללית') list = list.filter(d => d.serviceType === 'כללית');
         else if (config.insuranceType === 'מושלם') list = list.filter(d => d.serviceType === 'מושלם');
         if (config.selectedCities?.length > 0) list = list.filter(d => config.selectedCities.some(city => d.label.includes(city)));
-        return list.map(doc => ({ ...doc, shortLabel: doc.label.split('|')[0].trim() }));
+        
+        return list.map(doc => {
+            const parts = doc.label.split('|').map(p => p.trim());
+            const name = parts[0];
+            const service = doc.serviceType || '';
+            
+            // תיקון חילוץ עיר: במושלם העיר נמצאת לרוב בסוף שם המרפאה בחלק ה-3
+            let city = parts[1]; 
+            if ((service === 'מושלם' || service === 'כללית') && parts[2]) {
+                const clinicParts = parts[2].split('-');
+                if (clinicParts.length > 1) {
+                    city = clinicParts[clinicParts.length - 1].trim();
+                }
+            }
+            
+            return { 
+                ...doc, 
+                shortLabel: `${name} (${city} - ${service})`
+            };
+        });
     };
 
 const [showPassword, setShowPassword] = useState(false);
@@ -329,16 +389,80 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                 <img src="/clalit-logo.png" alt="כללית" className="h-8 object-contain" />
                             </div>
                             <div className="space-y-2">
-                                <div className="space-y-0.5"><label className="text-base font-bold text-gray-500 pr-1">תחום</label><MultiSelectDropdown options={Object.values(CLALIT_GROUPS).map(g => ({ id: String(g.id), label: g.name }))} selected={config.selectedGroup ? [String(config.selectedGroup)] : []} onChange={(val) => setConfig({...config, selectedGroup: val[0], selectedSpecialization: '', selectedDoctors: []})} placeholder="בחר תחום..." isObject isMulti={false} focusClass="focus:ring-[#00a896]" /></div>
-                                <div className="space-y-0.5"><label className="text-base font-bold text-gray-500 pr-1">מקצוע</label><MultiSelectDropdown options={CLALIT_SPECIALIZATIONS[config.selectedGroup] ? Object.values(CLALIT_SPECIALIZATIONS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : []} selected={config.selectedSpecialization ? [String(config.selectedSpecialization)] : []} onChange={(val) => setConfig({...config, selectedSpecialization: val[0], selectedDoctors: []})} placeholder="בחר מקצוע..." isObject isMulti={false} focusClass="focus:ring-[#00a896]" /></div>
-                                <div className="space-y-0.5"><label className="text-base font-bold text-gray-500 pr-1">ערים לסריקה</label><MultiSelectDropdown options={AVAILABLE_CITIES} selected={config.selectedCities} onChange={handleCitiesChange} placeholder="בחר ערים לסריקה..." isObject focusClass="focus:ring-[#00a896]" /></div>
-                                <div className="space-y-0.5"><label className="text-base font-bold text-gray-500 pr-1">רופאים מועדפים</label><MultiSelectDropdown options={getDoctorsList()} selected={config.selectedDoctors} onChange={handleDoctorsChange} placeholder="חפש רופאים..." isObject focusClass="focus:ring-[#00a896]" /></div>
+                                {/* תחום */}
+                                <div className="space-y-0.5">
+                                    <label className="text-base font-bold text-gray-500 pr-1">תחום</label>
+                                    <MultiSelectDropdown 
+                                        options={Object.values(CLALIT_GROUPS).map(g => ({ id: String(g.id), label: g.name }))} 
+                                        selected={config.selectedGroup ? [String(config.selectedGroup)] : []} 
+                                        onChange={(val) => {
+                                            const groupId = val[0];
+                                            const firstSpec = CLALIT_SPECIALIZATIONS[groupId]?.[0]?.id || '';
+                                            setConfig({
+                                                ...config, 
+                                                selectedGroup: groupId, 
+                                                selectedSpecialization: String(firstSpec), 
+                                                selectedDoctors: []
+                                            });
+                                        }} 
+                                        placeholder="בחר תחום..." 
+                                        isObject 
+                                        isMulti={false} 
+                                        focusClass="focus:ring-[#00a896]" 
+                                    />
+                                </div>
+
+                                {/* מקצוע */}
+                                <div className="space-y-0.5">
+                                    <label className="text-base font-bold text-gray-500 pr-1">מקצוע</label>
+                                    <MultiSelectDropdown 
+                                        options={CLALIT_SPECIALIZATIONS[config.selectedGroup] ? Object.values(CLALIT_SPECIALIZATIONS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : []} 
+                                        selected={config.selectedSpecialization ? [String(config.selectedSpecialization)] : []} 
+                                        onChange={(val) => setConfig({...config, selectedSpecialization: val[0], selectedDoctors: []})} 
+                                        placeholder="בחר מקצוע..." 
+                                        isObject 
+                                        isMulti={false} 
+                                        focusClass="focus:ring-[#00a896]" 
+                                    />
+                                </div>
+
+                                {/* ערים לסריקה */}
+                                <div className="space-y-0.5">
+                                    <label className="text-base font-bold text-gray-500 pr-1">ערים לסריקה</label>
+                                    <MultiSelectDropdown 
+                                        options={AVAILABLE_CITIES} 
+                                        selected={config.selectedCities} 
+                                        onChange={handleCitiesChange} 
+                                        placeholder="בחר ערים לסריקה..." 
+                                        isObject 
+                                        focusClass="focus:ring-[#00a896]" 
+                                    />
+                                </div>
+
+                                {/* רופאים מועדפים - מופיע פעם אחת בלבד */}
+                                <div className="space-y-0.5">
+                                    <label className="text-base font-bold text-gray-500 pr-1">רופאים מועדפים</label>
+                                    <MultiSelectDropdown 
+                                        options={getDoctorsList()} 
+                                        selected={config.selectedDoctors} 
+                                        onChange={handleDoctorsChange} 
+                                        placeholder="חפש רופאים..." 
+                                        isObject 
+                                        focusClass="focus:ring-[#00a896]" 
+                                    />
+                                </div>
                                 
                                 <div className="flex items-center justify-between bg-white p-2 rounded-2xl border border-teal-100">
-                                    <label className="flex items-center gap-2 text-lg font-bold text-gray-600 cursor-pointer leading-none"><input type="checkbox" checked={config.includeSurrounding} onChange={(e) => setConfig({...config, includeSurrounding: e.target.checked})} className="w-5 h-5 accent-[#00a896]" /> כולל יישובים בסביבה</label>
+                                    <label className="flex items-center gap-2 text-lg font-bold text-gray-600 cursor-pointer leading-none">
+                                        <input type="checkbox" checked={config.includeSurrounding} onChange={(e) => setConfig({...config, includeSurrounding: e.target.checked})} className="w-5 h-5 accent-[#00a896]" /> 
+                                        כולל יישובים בסביבה
+                                    </label>
                                     <div className="flex gap-2">
                                         {['הכל', 'כללית', 'מושלם'].map(t => (
-                                            <label key={t} className="flex items-center gap-1.5 cursor-pointer text-base font-bold text-gray-500 leading-none"><input type="radio" name="ins" value={t} checked={config.insuranceType === t} onChange={handleChange} className="w-4 h-4 accent-[#00a896]" /> {t}</label>
+                                            <label key={t} className="flex items-center gap-1.5 cursor-pointer text-base font-bold text-gray-500 leading-none">
+                                                <input type="radio" name="ins" value={t} checked={config.insuranceType === t} onChange={handleChange} className="w-4 h-4 accent-[#00a896]" /> 
+                                                {t}
+                                            </label>
                                         ))}
                                     </div>
                                 </div>
@@ -475,12 +599,15 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                     }
                                     if (!docObj) return null;
                                     const parts = docObj.label.split('|').map(p => p.trim());
-                                    const name = parts[0];
-                                    return (
-                                        <div key={docId} className="bg-white p-4 rounded-[2rem] border-2 border-gray-100 shadow-xl relative hover:border-teal-400 transition-all flex flex-col justify-between min-h-[140px]">
-                                            <button onClick={() => handleDoctorsChange(config.selectedDoctors.filter(id => id !== docId))} className="absolute top-4 left-4 text-gray-300 hover:text-red-500 text-xl font-black">✕</button>
-                                            <div>
-                                                <div className="font-black text-2xl text-gray-800 mb-2 leading-tight border-r-4 border-blue-500 pr-3">{name}</div>
+const name = parts[0];
+const city = parts[1]; // חילוץ העיר מהחלק השני של ה-label
+return (
+    <div key={docId} className="bg-white p-4 rounded-[2rem] border-2 border-gray-100 shadow-xl relative hover:border-teal-400 transition-all flex flex-col justify-between min-h-[140px]">
+        <button onClick={() => handleDoctorsChange(config.selectedDoctors.filter(id => id !== docId))} className="absolute top-4 left-4 text-gray-300 hover:text-red-500 text-xl font-black">✕</button>
+        <div>
+            <div className="font-black text-2xl text-gray-800 mb-2 leading-tight border-r-4 border-blue-500 pr-3">
+                {name} <span className="text-gray-400 text-lg font-bold">({city})</span>
+            </div>
                                                 <div className="text-base text-gray-500 font-bold leading-tight space-y-1">
                                                     <div className="truncate"><span className="text-[#007cc3]">מרפאה:</span> {parts[2]}</div>
                                                     <div className="truncate"><span className="text-[#007cc3]">כתובת:</span> {parts[3]}</div>

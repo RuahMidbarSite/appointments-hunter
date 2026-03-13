@@ -1,5 +1,5 @@
 export const AVAILABLE_DOCTORS = [
-    {
+        {
         "id": "גב' אירינה וילנקין",
         "serviceType": "כללית",
         "doctorId": "B68BA531A535C152321EF0A3F8AFD687",
