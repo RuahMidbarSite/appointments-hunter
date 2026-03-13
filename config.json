@@ -3,6 +3,7 @@
   "userCode": "WL13044",
   "password": "Ruah816#",
   "familyMember": "אניגמה דיי",
+  "loginMode": "password",
   "selectedCities": [
     "הרצליה"
   ],
@@ -12,7 +13,7 @@
   "selectedSpecialization": "32",
   "insuranceType": "הכל",
   "endDate": "",
-  "runInLoop": true,
+  "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
@@ -20,7 +21,9 @@
   "doctorDates": {
     "ד\"ר דאבוש קובי": "15.03.2026"
   },
-  "nextRunTime": 1773342713199,
+  "loginMethod": "password",
+  "otpCode": "",
+  "nextRunTime": null,
   "botStatus": "idle",
   "selectedDoctorNames": []
 }

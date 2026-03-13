@@ -104,6 +104,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
 export default function BotDashboard() {
    const [config, setConfig] = useState({
        userId: '', userCode: '', password: '', familyMember: '', 
+       loginMode: 'password',
        selectedCities: [], includeSurrounding: true, selectedDoctors: [], 
        selectedGroup: '', selectedSpecialization: '', insuranceType: 'הכל', 
        endDate: '', runInLoop: false, loopFrequency: "10-15",
@@ -165,9 +166,15 @@ export default function BotDashboard() {
     }, []);
 
     const handleChange = (e) => { setConfig(prev => ({ ...prev, [e.target.name]: e.target.value })); };
-        const handleAutoSave = async (updated) => { 
-            await fetch('/api/save-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...updated, action: 'save_only' }) }); 
-        };
+    const handleAutoSave = async (updated) => { 
+        await fetch('/api/save-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...updated, action: 'save_only' }) }); 
+    };
+
+    const handleLoginModeChange = (mode) => {
+        const updated = { ...config, loginMode: mode };
+        setConfig(updated);
+        handleAutoSave(updated);
+    };
 
     const handleCitiesChange = (newCities) => {
         const updated = { ...config, selectedCities: newCities, selectedDoctors: [], selectedDoctorNames: [] };
@@ -175,13 +182,12 @@ export default function BotDashboard() {
     };
 
     const handleDoctorsChange = (newDoctors) => {
-        // המרת המזהים (IDs) לשמות הרופאים הנקיים כדי שהבוט יוכל להקליד ולסנן לפיהם
         const names = newDoctors.map(docId => {
             for (const db of Object.values(DOCTORS_DATABASE)) {
                 const found = db.find(d => (d.key || d.id) === docId);
                 if (found) return found.label.split('|')[0].trim();
             }
-            return docId; // גיבוי למקרה שלא נמצא
+            return docId;
         });
         
         const updated = { ...config, selectedDoctors: newDoctors, selectedDoctorNames: names };
@@ -211,6 +217,11 @@ export default function BotDashboard() {
         if (config.selectedCities?.length > 0) list = list.filter(d => config.selectedCities.some(city => d.label.includes(city)));
         return list.map(doc => ({ ...doc, shortLabel: doc.label.split('|')[0].trim() }));
     };
+
+    const isSmsMode = config.loginMode === 'sms';
+    const isLoopActive   = botLiveStatus === 'active' && config.runInLoop;
+    const isSingleActive = botLiveStatus === 'active' && !config.runInLoop;
+    const isWaiting      = botLiveStatus === 'idle' && timeLeft !== null && timeLeft > 0;
 
     return (
         <div className="h-screen bg-gray-50 flex flex-col overflow-hidden font-sans">
@@ -245,15 +256,57 @@ export default function BotDashboard() {
                             <h2 className="text-2xl font-black text-blue-800 mb-3 flex items-center gap-2">
                                 <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span> פרטי התחברות
                             </h2>
+
+                            {/* Login Mode Tabs */}
+                            <div className="flex rounded-xl overflow-hidden border border-blue-200 mb-3 text-base font-bold">
+                                <button
+                                    onClick={() => handleLoginModeChange('password')}
+                                    className={`flex-1 py-1.5 text-center transition-all ${!isSmsMode ? 'bg-blue-600 text-white shadow-inner' : 'bg-white text-blue-600 hover:bg-blue-50'}`}
+                                >
+                                    קוד משתמש וסיסמה
+                                </button>
+                                <button
+                                    onClick={() => handleLoginModeChange('sms')}
+                                    className={`flex-1 py-1.5 text-center transition-all border-r border-blue-200 ${isSmsMode ? 'bg-blue-600 text-white shadow-inner' : 'bg-white text-blue-600 hover:bg-blue-50'}`}
+                                >
+                                    📱 קוד חד-פעמי
+                                </button>
+                            </div>
+
                             <div className="space-y-1.5">
-                                {['userId', 'userCode', 'password', 'familyMember'].map(f => (
-                                    <div key={f} className="flex items-center gap-2">
-                                        <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">
-                                            {f === 'userId' ? 'תעודת זהות' : f === 'userCode' ? 'קוד' : f === 'password' ? 'סיסמה' : 'שם'}
-                                        </label>
-                                        <input type={f === 'password' ? "password" : "text"} name={f} value={config[f]} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                {/* תעודת זהות – תמיד מוצג */}
+                                <div className="flex items-center gap-2">
+                                    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">תעודת זהות</label>
+                                    <input type="text" name="userId" value={config.userId} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                </div>
+
+                                {/* שדות סיסמה – מוצגים רק במצב password */}
+                                {!isSmsMode && (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">קוד</label>
+                                            <input type="text" name="userCode" value={config.userCode} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">סיסמה</label>
+                                            <input type="password" name="password" value={config.password} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* הודעת SMS – מוצגת רק במצב sms כשהבוט פעיל */}
+                                {isSmsMode && botLiveStatus === 'active' && (
+                                    <div className="flex items-center gap-2 bg-blue-100 border border-blue-300 rounded-xl px-3 py-2 text-blue-800 font-bold text-base">
+                                        <span className="animate-pulse text-xl">📱</span>
+                                        <span>קוד נשלח לנייד – הזן אותו בדפדפן</span>
                                     </div>
-                                ))}
+                                )}
+
+                                {/* שם בן משפחה – תמיד מוצג */}
+                                <div className="flex items-center gap-2">
+                                    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">שם</label>
+                                    <input type="text" name="familyMember" value={config.familyMember} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                </div>
                             </div>
                         </section>
                     </div>
@@ -289,10 +342,31 @@ export default function BotDashboard() {
                     <div className="p-3 flex flex-col gap-2">
                         <section className="bg-purple-50/40 border-2 border-purple-100 rounded-2xl p-3 shadow-sm">
                             <div className="flex items-center justify-between mb-3">
-                                <h2 className="text-2xl font-black text-[#005a4c] flex items-center gap-2"><span className="w-1.5 h-6 bg-[#8c4391] rounded-full"></span> תזמון</h2>
-                                <div className="bg-[#f0f9f8] border border-[#d1edea] px-3 py-1.5 rounded-full flex items-center gap-3 shadow-sm min-w-[130px]">
-                                    <div className={`w-3 h-3 rounded-full ${botLiveStatus === 'active' ? 'bg-[#00a896] animate-pulse' : 'bg-gray-300'}`}></div>
-                                    <span className="text-xl font-black text-[#005a4c]">{botLiveStatus === 'active' ? 'בסריקה' : formatTime(timeLeft)}</span>
+                                <h2 className="text-2xl font-black text-[#005a4c] flex items-center gap-2">
+                                    <span className="w-1.5 h-6 bg-[#8c4391] rounded-full"></span> תזמון
+                                </h2>
+                                {/* אינדיקטור מצב */}
+                                <div className={`px-3 py-1.5 rounded-full flex items-center gap-2 shadow-sm border transition-all min-w-[155px]
+                                    ${isLoopActive   ? 'bg-green-50 border-green-200' :
+                                      isSingleActive ? 'bg-blue-50 border-blue-200' :
+                                      isWaiting      ? 'bg-amber-50 border-amber-200' :
+                                                       'bg-gray-50 border-gray-200'}`}>
+                                    <div className={`w-2.5 h-2.5 rounded-full shrink-0
+                                        ${isLoopActive   ? 'bg-green-500 animate-pulse' :
+                                          isSingleActive ? 'bg-blue-500 animate-pulse' :
+                                          isWaiting      ? 'bg-amber-400 animate-pulse' :
+                                                           'bg-gray-300'}`}>
+                                    </div>
+                                    <span className={`text-sm font-black leading-tight
+                                        ${isLoopActive   ? 'text-green-700' :
+                                          isSingleActive ? 'text-blue-700' :
+                                          isWaiting      ? 'text-amber-700' :
+                                                           'text-gray-400'}`}>
+                                        {isLoopActive   ? 'רץ בלולאה' :
+                                         isSingleActive ? 'בבדיקה' :
+                                         isWaiting      ? `⏳ ${formatTime(timeLeft)} להמתנה` :
+                                                          'במנוחה'}
+                                    </span>
                                 </div>
                             </div>
                             <div className="space-y-3">
@@ -323,32 +397,42 @@ export default function BotDashboard() {
                         </section>
                         
                         <div className="grid grid-cols-2 gap-2 mt-1">
-                            <button 
-                                onClick={() => handleRun(false)} 
-                                disabled={botLiveStatus === 'active' && !config.runInLoop} 
-                                className={`py-2.5 text-white font-black text-xl rounded-2xl shadow-lg transition-all active:scale-95 
-                                    ${botLiveStatus === 'active' && config.runInLoop ? 'bg-[#008f80] ring-4 ring-offset-2 ring-[#00a896] shadow-xl' : 'bg-[#00a896] hover:bg-[#008f80]'} 
-                                    ${botLiveStatus === 'active' && !config.runInLoop ? 'opacity-30 grayscale cursor-not-allowed' : ''}`}
+                            {/* כפתור לולאה */}
+                            <button
+                                onClick={() => handleRun(false)}
+                                disabled={isSingleActive}
+                                className={`py-2.5 text-white font-black text-xl rounded-2xl transition-all duration-150
+                                    ${isLoopActive
+                                        ? 'bg-[#007060] shadow-inner ring-2 ring-inset ring-[#005a4c] translate-y-0.5 cursor-default'
+                                        : isSingleActive
+                                            ? 'bg-[#00a896] opacity-30 grayscale cursor-not-allowed shadow-lg'
+                                            : 'bg-[#00a896] hover:bg-[#008f80] shadow-lg active:translate-y-0.5 active:shadow-inner active:bg-[#007060] cursor-pointer'}`}
                             >
-                                {botLiveStatus === 'active' && config.runInLoop ? 'לולאה (פועל)' : 'לולאה'}
+                                {isLoopActive ? '🔄 רץ בלולאה' : 'לולאה'}
                             </button>
-                            <button 
-                                onClick={() => handleRun(true)} 
-                                disabled={botLiveStatus === 'active' && config.runInLoop} 
-                                className={`py-2.5 text-white font-black text-xl rounded-2xl shadow-lg transition-all active:scale-95 
-                                    ${botLiveStatus === 'active' && !config.runInLoop ? 'bg-[#0066a1] ring-4 ring-offset-2 ring-[#007cc3] shadow-xl' : 'bg-[#007cc3] hover:bg-[#0066a1]'} 
-                                    ${botLiveStatus === 'active' && config.runInLoop ? 'opacity-30 grayscale cursor-not-allowed' : ''}`}
+
+                            {/* כפתור בדיקה */}
+                            <button
+                                onClick={() => handleRun(true)}
+                                disabled={isLoopActive}
+                                className={`py-2.5 text-white font-black text-xl rounded-2xl transition-all duration-150
+                                    ${isSingleActive
+                                        ? 'bg-[#004f80] shadow-inner ring-2 ring-inset ring-[#003d63] translate-y-0.5 cursor-default'
+                                        : isLoopActive
+                                            ? 'bg-[#007cc3] opacity-30 grayscale cursor-not-allowed shadow-lg'
+                                            : 'bg-[#007cc3] hover:bg-[#0066a1] shadow-lg active:translate-y-0.5 active:shadow-inner active:bg-[#004f80] cursor-pointer'}`}
                             >
-                                {botLiveStatus === 'active' && !config.runInLoop ? 'בדיקה (פועל)' : 'בדיקה'}
+                                {isSingleActive ? '🔍 בודק...' : 'בדיקה'}
                             </button>
-                            <button 
-                                onClick={handleStop} 
-                                disabled={botLiveStatus === 'idle'}
-                                className={`col-span-2 py-2.5 font-black text-xl rounded-2xl transition-all active:scale-95 
-                                    ${botLiveStatus === 'idle' ? 'bg-gray-200 text-gray-700 border-2 border-gray-300 cursor-not-allowed shadow-none' : 'bg-[#e11d48] text-white hover:bg-[#be123c] shadow-md'}`}
+
+                            {/* כפתור עצור */}
+                            <button
+                                onClick={handleStop}
+                                className="col-span-2 py-2.5 font-black text-xl rounded-2xl transition-all duration-150 bg-[#e11d48] text-white hover:bg-[#be123c] shadow-md active:translate-y-0.5 active:shadow-inner active:bg-[#9f0f35] cursor-pointer"
                             >
-                                {botLiveStatus === 'idle' ? 'מערכת במנוחה' : 'עצור הכל'}
+                                ⏹ עצור הכל
                             </button>
+
                             <a 
                                 href="/api/download-report" 
                                 download 
