@@ -1,7 +1,15 @@
-import fs from 'fs';
-import path from 'path';
-import { spawn, execSync } from 'child_process'; 
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+const mongoose = require('mongoose');
+const SearchTemplate = require('../../src/models/SearchTemplate');
 
+const MONGODB_URI = process.env.MONGODB_URI;
+
+async function dbConnect() {
+    if (mongoose.connection.readyState >= 1) return;
+    return mongoose.connect(MONGODB_URI);
+}
 // משתנה גלובלי לשמירת הבוט הנוכחי
 let currentBotProcess = null;
 
@@ -10,7 +18,7 @@ const cleanEnv = (key) => {
   return val.replace(/^["']|["']$/g, '');
 };
 
-export default function handler(req, res) {
+module.exports = async function handler(req, res) {
   const configPath = path.join(process.cwd(), 'config.json');
 
   if (req.method === 'GET') {
@@ -60,6 +68,40 @@ export default function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
+      if (!MONGODB_URI) {
+          console.error("❌ MONGODB_URI is missing in .env file");
+          return res.status(500).json({ error: "Database configuration missing" });
+      }
+      await dbConnect();
+
+      // חיפוש תבניות ב-DB
+      if (req.body.action === 'search_templates') {
+          const query = req.body.query;
+          const templates = await SearchTemplate.find({
+              $or: [
+                  { templateName: { $regex: query, $options: 'i' } },
+                  { userId: { $regex: query, $options: 'i' } }
+              ]
+          }).limit(5);
+          return res.status(200).json(templates);
+      }
+
+      // שמירת תבנית ל-DB
+      if (req.body.action === 'save_template_to_db') {
+          const { templateName, ...configData } = req.body.data;
+          await SearchTemplate.findOneAndUpdate(
+              { templateName },
+              { ...configData, updatedAt: new Date() },
+              { upsert: true }
+          );
+          return res.status(200).json({ message: 'Saved to DB' });
+      }
+        // מחיקת תבנית מה-DB
+      if (req.body.action === 'delete_template') {
+          const { id } = req.body;
+          await SearchTemplate.findByIdAndDelete(id);
+          return res.status(200).json({ message: 'Template deleted' });
+      }
       // ניקוי ממוקד: סוגר את הבוט הקודם ואת הדפדפנים שלו מבלי להפיל את השרת
       console.log("🪓 מנקה שאריות של דפדפנים ובוט קודם...");
       // סגירה מבוקרת של תהליך הבוט הקודם (ללא פקודות מערכת שסוגרות את כל הכרום)

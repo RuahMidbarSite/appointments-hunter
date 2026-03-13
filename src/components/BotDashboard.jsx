@@ -219,7 +219,104 @@ export default function BotDashboard() {
         setConfig(updated);
         handleAutoSave(updated);
     };
+    
+const [dbSearchResults, setDbSearchResults] = useState([]);
 
+    const searchTemplates = async (query) => {
+        if (query.length < 2) { setDbSearchResults([]); return; }
+        try {
+            const res = await fetch('/api/save-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'search_templates', query })
+            });
+            const data = await res.json();
+            setDbSearchResults(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error("Search error:", err);
+        }
+    };
+
+    const saveToDB = async () => {
+        // 1. חילוץ שם התחום בצורה נכונה
+        const selectedGroupObj = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup));
+        const groupName = selectedGroupObj ? selectedGroupObj.name : "כללי";
+        const cityName = config.selectedCities.length > 0 ? config.selectedCities[0] : "לא נבחרה עיר";
+        
+        // 2. טיפול במידע על הרופא
+        let doctorLabelForConfirm = "";
+        let doctorLabelForDB = "";
+        if (config.selectedDoctors && config.selectedDoctors.length > 0) {
+            if (config.selectedDoctors.length === 1) {
+                const rawDocName = config.selectedDoctorNames?.[0] || "רופא";
+                const cleanDocName = rawDocName.replace(/ד"ר|דר'/g, '').trim();
+                doctorLabelForConfirm = `\n🩺 רופא: ד"ר ${cleanDocName}`;
+                doctorLabelForDB = ` | רופא: ד"ר ${cleanDocName}`;
+            } else {
+                doctorLabelForConfirm = `\n🩺 רופאים: ${config.selectedDoctors.length}`;
+                doctorLabelForDB = ` | רופאים: ${config.selectedDoctors.length}`;
+            }
+        }
+
+        // 3. יצירת תאריך מלא (DD.MM.YYYY) ושעה
+        const now = new Date();
+        const day = now.getDate().toString().padStart(2, '0');
+        const month = (now.getMonth() + 1).toString().padStart(2, '0');
+        const year = now.getFullYear();
+        const datePart = `${day}.${month}.${year}`;
+        const timePart = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+        // 4. בניית שם התבנית ל-DB (שורה אחת מפורטת)
+        const autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | תחום: ${groupName}${doctorLabelForDB} | עיר: ${cityName} | תאריך: ${datePart} | שעה: ${timePart}`;
+        
+        // 5. הודעת אישור מפורטת ומחולקת לשורות
+        const confirmMessage = `לשמור תבנית חיפוש חדשה?\n\n` +
+                               `👤 שם: ${config.familyMember || 'ללא שם'}\n` +
+                               `💳 תז: ${config.userId || ''}\n` +
+                               `📋 תחום: ${groupName}${doctorLabelForConfirm}\n` +
+                               `📍 עיר: ${cityName}\n` +
+                               `📅 תאריך: ${datePart}\n` +
+                               `🕒 שעה: ${timePart}`;
+
+        if (!confirm(confirmMessage)) return;
+
+        try {
+            const res = await fetch('/api/save-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    action: 'save_template_to_db', 
+                    data: { 
+                        ...config, 
+                        templateName: autoName,
+                        saveDate: datePart,
+                        saveTime: timePart
+                    } 
+                })
+            });
+            if (res.ok) alert("✅ התבנית נשמרה בהצלחה!");
+        } catch (err) {
+            console.error("Save error:", err);
+            alert("❌ שגיאה בשמירה ל-DB");
+        }
+    };
+    const deleteTemplate = async (e, id) => {
+        e.stopPropagation(); // מונע מהקליק להפעיל את טעינת התבנית
+        if (!confirm("האם אתה בטוח שברצונך למחוק את התבנית?")) return;
+        
+        try {
+            const res = await fetch('/api/save-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete_template', id })
+            });
+            if (res.ok) {
+                setDbSearchResults(prev => prev.filter(t => t._id !== id));
+            }
+        } catch (err) {
+            console.error("Delete error:", err);
+        }
+    };
     const handleCitiesChange = (newCities) => {
         const updated = { ...config, selectedCities: newCities, selectedDoctors: [], selectedDoctorNames: [] };
         setConfig(updated); handleAutoSave(updated);
@@ -290,7 +387,6 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
     return (
         <div className="h-screen bg-gray-50 flex flex-col overflow-hidden font-sans">
             <main className="flex-1 flex flex-col overflow-hidden bg-[#f8fbfa]">
-                
                 {/* 3 Columns Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 border-b border-gray-200 bg-white shrink-0 items-start">
                     
@@ -377,6 +473,92 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                 </div>
                             </div>
                         </section>
+                       {/* מנגנון ניהול תבניות - גרסה מצומצמת ל-2 שורות */}
+                        <div className="mt-3 bg-gray-100/50 border border-gray-200 rounded-2xl p-2 space-y-1.5">
+                            <div className="relative">
+                                <input 
+                                    type="text" 
+                                    placeholder="🔍 חפש תבנית..." 
+                                    className="w-full px-3 py-1.5 rounded-xl border border-gray-200 focus:border-[#00a896] outline-none text-lg font-bold"
+                                    onChange={(e) => searchTemplates(e.target.value)}
+                                />
+                                {dbSearchResults.length > 0 && (
+                                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-40 overflow-y-auto">
+                                       {dbSearchResults.map(t => {
+                                            // 1. ניקוי יסודי של הטקסט - הסרת שמות, ת"ז וכותרות
+                                            let info = t.templateName;
+                                            
+                                            // הסרת פרטים אישיים
+                                            if (t.familyMember) info = info.replace(t.familyMember, '');
+                                            if (t.userId) info = info.replace(new RegExp(`תז:\\s*${t.userId}|${t.userId}`, 'g'), '');
+
+                                            // הסרת כותרות קבועות
+                                            info = info.replace(/תחום:|רופא:|עיר:|תאריך:|שעה:/g, '');
+
+                                            // 2. עיבוד סימנים (החלפת | בנקודה וניקוי רווחים כפולים)
+                                            const finalInfo = info
+                                                .replace(/\|/g, ' • ')
+                                                .replace(/\s*•\s*•\s*/g, ' • ')
+                                                .replace(/^\s*•\s*|\s*•\s*$/g, '')
+                                                .trim();
+                                            
+                                            return (
+                                                <div 
+                                                    key={t._id} 
+                                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 group flex flex-col gap-1 text-right"
+                                                    dir="rtl"
+                                                    onClick={() => { 
+                                                        const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
+                                                        setConfig(prev => ({ ...prev, ...cleanData })); 
+                                                        setDbSearchResults([]); 
+                                                    }}
+                                                >
+                                                    {/* שורה 1: שם ות"ז (מימין) ופח אשפה (משמאל) */}
+                                                    <div className="flex items-center justify-between w-full">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xl">👤</span>
+                                                                <span className="text-xl font-black text-purple-700">{t.familyMember}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
+                                                                <span className="text-sm">💳</span>
+                                                                <span className="text-base font-bold text-blue-600">{t.userId}</span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <button 
+                                                            onClick={(e) => deleteTemplate(e, t._id)} 
+                                                            className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-opacity border border-transparent hover:border-red-100"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
+
+                                                    {/* שורה 2: מידע נקי בלבד */}
+                                                    <div className="flex items-start gap-2">
+                                                        <span className="text-sm mt-0.5 opacity-70">📋</span>
+                                                        <p className="text-[15px] font-bold text-gray-700 leading-tight">
+                                                            {finalInfo}
+                                                            {t.saveDate && (
+                                                                <span className="text-[11px] text-gray-400 font-medium mr-2">
+                                                                    ({t.saveDate} {t.saveTime})
+                                                                </span>
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                            <button 
+                                onClick={saveToDB}
+                                className="w-full bg-[#00a896] text-white py-1.5 rounded-xl font-black text-lg hover:bg-[#008f80] transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                💾 שמור ל-DB
+                            </button>
+                        </div>
                     </div>
 
                     {/* Column 2: Search Settings (Center) */}

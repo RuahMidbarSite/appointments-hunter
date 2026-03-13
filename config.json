@@ -1,14 +1,18 @@
 {
-  "userId": "16695520",
+  "userId": "016695520",
   "userCode": "WL13044",
   "password": "Ruah816#",
-  "familyMember": "אניגמה דיי",
-  "loginMode": "password",
-  "selectedCities": [],
+  "familyMember": "מלכה שפירא",
+  "loginMode": "sms",
+  "selectedCities": [
+    "הרצליה"
+  ],
   "includeSurrounding": true,
-  "selectedDoctors": [],
-  "selectedGroup": "1059",
-  "selectedSpecialization": "1059",
+  "selectedDoctors": [
+    "892024EBCD1146AA33A5B76C21647750 - ד\"ר פנחסוב פנחס - הרצליה"
+  ],
+  "selectedGroup": "31",
+  "selectedSpecialization": "31",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
@@ -54,5 +58,7 @@
   "otpCode": "",
   "nextRunTime": null,
   "botStatus": "idle",
-  "selectedDoctorNames": []
+  "selectedDoctorNames": [
+    "ד\"ר פנחס פנחסוב"
+  ]
 }
