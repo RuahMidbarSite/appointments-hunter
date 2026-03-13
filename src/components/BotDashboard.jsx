@@ -8,13 +8,17 @@ import { AVAILABLE_DOCTORS as orthopedicsDoctors } from '../scrapers/health/cons
 import { AVAILABLE_DOCTORS as gastroDoctors } from '../scrapers/health/constants/gastroenterology';
 import { AVAILABLE_DOCTORS as neurologyDoctors } from '../scrapers/health/constants/neurology';
 import { AVAILABLE_DOCTORS as cardioDoctors } from '../scrapers/health/constants/cardiology';
+import { AVAILABLE_DOCTORS as endoDoctors } from '../scrapers/health/constants/Endocrinology';
+import { AVAILABLE_DOCTORS as dermDoctors } from '../scrapers/health/constants/Dermatology';
 
 const DOCTORS_DATABASE = {
     "אורולוגיה": urologyDoctors,
     "אורתופדיה": orthopedicsDoctors,
     "גסטרואנטרולוגיה": gastroDoctors,
     "נוירולוגיה": neurologyDoctors,
-    "קרדיולוגיה": cardioDoctors
+   "קרדיולוגיה": cardioDoctors,
+    "אנדוקרינולוגיה": endoDoctors,
+    "עור": dermDoctors
 };
 
 const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObject = false, focusClass, isMulti = true }) => {
@@ -218,8 +222,8 @@ export default function BotDashboard() {
         return list.map(doc => ({ ...doc, shortLabel: doc.label.split('|')[0].trim() }));
     };
 
-    const isSmsMode = config.loginMode === 'sms';
-    const isLoopActive   = botLiveStatus === 'active' && config.runInLoop;
+const [showPassword, setShowPassword] = useState(false);
+const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveStatus === 'active' && config.runInLoop;
     const isSingleActive = botLiveStatus === 'active' && !config.runInLoop;
     const isWaiting      = botLiveStatus === 'idle' && timeLeft !== null && timeLeft > 0;
 
@@ -289,8 +293,12 @@ export default function BotDashboard() {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">סיסמה</label>
-                                            <input type="password" name="password" value={config.password} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
-                                        </div>
+<div className="flex-1 relative">
+    <input type={showPassword ? "text" : "password"} name="password" value={config.password} onChange={handleChange} className="w-full px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white pr-3 pl-8" />
+    <button type="button" onClick={() => setShowPassword(p => !p)} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">
+        {showPassword ? "🙈" : "👁️"}
+    </button>
+</div>                                        </div>
                                     </>
                                 )}
 

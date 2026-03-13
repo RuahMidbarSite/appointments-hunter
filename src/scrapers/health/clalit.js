@@ -32,7 +32,7 @@ async function loginWithSMS(page, config) {
     try {
         await page.waitForSelector('#ctl00_cphBody__loginView_btnSendSMS', { state: 'visible', timeout: 10000 });
         await page.click('#ctl00_cphBody__loginView_btnSendSMS');
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(300);
         console.log('✅ [SMS-LOGIN] לשונית קוד חד-פעמי נבחרה');
     } catch (e) {
         console.log('⚠️ [SMS-LOGIN] לא הצלחתי ללחוץ על לשונית SMS:', e.message);
@@ -166,12 +166,17 @@ async function runClalit(page) {
         console.log(`🔐 [LOGIN-CHECK] מחובר? ${isLoggedIn ? 'כן' : 'לא'}`);
         
         if (!isLoggedIn) {
-            console.log("🛡️ לא מזוהה סשן פעיל, טוען דף כניסה או מרענן...");
-            await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
-            await handleResponseSorry(page, MAIN_URL);
-        } else {
-            console.log("⚡ נמצא סשן פעיל! ממשיך לסריקה ללא לוגין מחדש.");
-        }
+    const currentUrl = page.url();
+    if (!currentUrl.includes('e-services.clalit.co.il')) {
+        console.log("🛡️ לא מזוהה סשן פעיל ולא על אתר כללית – מנווט...");
+        await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
+        await handleResponseSorry(page, MAIN_URL);
+    } else {
+        console.log("🛡️ לא מחובר אך כבר על אתר כללית – לא מרענן.");
+    }
+} else {
+    console.log("⚡ נמצא סשן פעיל! ממשיך לסריקה ללא לוגין מחדש.");
+}
 
         const idField = '#ctl00_cphBody__loginView_tbUserId';
         const needsLogin = await page.waitForSelector(idField, { visible: true, timeout: 5000 }).catch(() => null);
@@ -196,9 +201,9 @@ async function runClalit(page) {
                 // --- התחברות רגילה עם סיסמה ---
                 const passTabBtn = '#ctl00_cphBody__loginView_btnPassword';
                 try {
-                    await page.waitForSelector(passTabBtn, { state: 'visible', timeout: 10000 });
+                    await page.waitForSelector(passTabBtn, { state: 'visible', timeout: 1500 });
                     await page.click(passTabBtn);
-                    await page.waitForTimeout(500);
+await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                 } catch (tabErr) {
                     console.log("⚠️ לשונית סיסמה לא נמצאה או שכבר פעילה.");
                 }
@@ -293,27 +298,10 @@ async function runClalit(page) {
 
         console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
         
-        await target.selectOption('#SelectedGroupCode', groupId);
-        await page.waitForTimeout(3000); 
-        await target.selectOption('#SelectedSpecializationCode', specId);
-        
-        await page.waitForTimeout(2000);
-        const debugFields = await target.evaluate(() => {
-            const doc = document.querySelector('#DoctorName');
-            const city = document.querySelector('#SelectedCityName');
-            return {
-                doctorFieldExists: !!doc,
-                cityFieldExists: !!city,
-                docVisible: doc ? (doc.offsetWidth > 0 && doc.offsetHeight > 0) : false,
-                docId: doc ? doc.id : 'n/a'
-            };
-        });
-        console.log("🔍 [DEBUG] מצב שדות לאחר בחירת מקצוע:", debugFields);
-        await target.selectOption('#SelectedGroupCode', groupId);
-        
-        await page.waitForTimeout(3000); 
-        await target.selectOption('#SelectedSpecializationCode', specId);
-        await page.waitForTimeout(1000);
+       await target.selectOption('#SelectedGroupCode', groupId);
+await page.waitForTimeout(3000); 
+await target.selectOption('#SelectedSpecializationCode', specId);
+await page.waitForTimeout(1000);
 
         const sentInThisRun = new Set(); 
         
@@ -367,20 +355,9 @@ async function runClalit(page) {
             } else {
                 const cityInput = '#SelectedCityName';
                 
-                await target.evaluate(() => window.scrollTo(0, 0));
-                await page.waitForTimeout(500);
-                
                 await target.click(cityInput, { clickCount: 3 });
-                await page.keyboard.press('Backspace');
-                await target.evaluate((selector) => {
-                    const el = document.querySelector(selector);
-                    if (el) {
-                        el.value = '';
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }, cityInput);
-                await page.waitForTimeout(500);
+await page.keyboard.press('Backspace');
+await page.waitForTimeout(300);
 
                 console.log(`🔎 מזין עיר: ${item}...`);
                 await target.type(cityInput, item, { delay: 250 });
