@@ -132,11 +132,14 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-async function sendEmailNotification(docName, city, dateStr) {
+async function sendEmailNotification(docName, city, dateStr, targetEmail) {
+    // שימוש באימייל מהדשבורד, ואם הוא ריק - גיבוי לאימייל הראשי של השרת
+    const recipient = targetEmail || process.env.EMAIL_USER;
+    
     const mailOptions = {
         from: process.env.EMAIL_USER,
-        to: process.env.EMAIL_USER,
-        subject: `🚨 תור פנוי לנוירולוג: ${docName} ב${city}!`,
+        to: recipient,
+        subject: `🚨 תור פנוי: ${docName} ב${city}!`,
         text: `הבוט מצא תור פנוי אצל ${docName} בעיר ${city}.\nתאריך התור: ${dateStr}\n\nהיכנס מיד לאתר כללית לקבוע אותו!`
     };
     await transporter.sendMail(mailOptions);
@@ -144,8 +147,10 @@ async function sendEmailNotification(docName, city, dateStr) {
 
 async function runClalit(page) {
     setBotStatus('active');
-    
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+    
+    // משתנה שישמור את התור המוקדם ביותר שנמצא *רק בסבב הנוכחי* לצורך שליחת מייל בסיום
+    let bestApptForEmailThisRun = null;
     const stats = { startTime: new Date() };
 
     const MAIN_URL = 'https://e-services.clalit.co.il/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx';
@@ -321,10 +326,18 @@ await page.waitForTimeout(1000);
             ? config.selectedDoctorNames
             : [];
 
-        for (const item of searchItems) {
+       for (const item of searchItems) {
+            // בדיקה האם המשתמש לחץ על 'עצור' בדשבורד לפני שעוברים לעיר/רופא הבא
+            const stopCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+            // עוצר רק אם המשתמש לחץ "עצור" (גם הלולאה כבויה וגם הסטטוס במנוחה)
+            // זה מונע עצירה בטעות של כפתור "בדיקה" שבו הלולאה כבויה אבל הסטטוס פעיל
+            if (stopCheck.runInLoop === false && stopCheck.botStatus === 'idle') {
+                console.log("🛑 זיהיתי פקודת עצירה מהדשבורד. מפסיק את הסבב הנוכחי...");
+                break; 
+            }
+
             console.log(`\n===================================`);
             console.log(`🔍 מתחיל חיפוש עבור ${isDoctorSearch ? 'רופא' : 'עיר'}: ${item}`);
-            
             if (isDoctorSearch) {
                 console.log(`🔎 מזהה שדה 'שם הרופא' ומזין: ${item}...`);
                 
@@ -417,21 +430,38 @@ await page.waitForTimeout(300);
 
             while (hasNextPage) {
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} עבור ${item}...`);
-                await page.screenshot({ path: `debug_${item}_page_${pageNum}.png` });
+              //  await page.screenshot({ path: `debug_${item}_page_${pageNum}.png` });
                 console.log(`📸 שמרתי צילום מסך בתיקייה הראשית: debug_${item}_page_${pageNum}.png`);
 
-                const rawDataFromPage = await target.evaluate(() => {
+                const rawDataFromPage = await target.evaluate((searchedItem) => {
                     return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
                         const addressText = card.querySelector('.clinicAddress')?.innerText || '';
-                        const parts = addressText.split(',');
-                        const actualCity = parts.length > 1 ? parts[parts.length - 1].trim() : addressText.trim();
+                        const detailsText = card.querySelector('.clinicDetails')?.innerText || '';
+                        
+                        let actualCity = '';
+                        
+                        // 1. ניסיון חילוץ מהכתובת הרגילה (למשל: "רחוב, עיר")
+                        const addrParts = addressText.split(',').map(p => p.trim());
+                        if (addrParts.length >= 2) {
+                            actualCity = addrParts[addrParts.length - 1];
+                        } 
+                        // 2. ניסיון חילוץ מהאלמנט החדש ששלחת (למשל: "כתובת: רחוב, עיר")
+                        else if (detailsText.includes(',')) {
+                            const detailParts = detailsText.split(',').map(p => p.trim());
+                            actualCity = detailParts[detailParts.length - 1];
+                        }
+                        // 3. גיבוי - שימוש בערך שחיפשנו (item) אם האתר לא הציג כלום
+                        else {
+                            actualCity = searchedItem || 'עיר לא צוינה';
+                        }
+
                         return {
                             docNameRaw: card.querySelector('.doctorName')?.innerText || 'לא נמצא שם',
                             dateTextRaw: card.querySelector('.visitDateTime')?.innerText || 'לא נמצא תאריך',
-                            actualCity: actualCity || 'עיר לא ידועה'
+                            actualCity: actualCity
                         };
                     });
-                });
+                }, item); // העברת item לתוך ה-evaluate
 
                 console.log("\n--- תחילת הדפסת דיבוג: מה הבוט רואה כרגע בדף ---");
                 const foundInPage = [];
@@ -446,14 +476,21 @@ await page.waitForTimeout(300);
                         continue;
                     }
                     
-                    const isoDate = `${match[3]}-${match[2]}-${match[1]}`;
-                    const inRange = !config.endDate || (isoDate <= config.endDate);
+                   const isoDate = `${match[3]}-${match[2]}-${match[1]}`;
                     
+                    // 1. בדיקה האם התאריך כבר עבר (הגנה מתור ישן)
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    if (isoDate < todayStr) {
+                        console.log(`   -> דילגתי: התאריך ${isoDate} כבר עבר (היום ${todayStr}).`);
+                        continue;
+                    }
+
+                    // 2. בדיקה האם התאריך בטווח היעד שהוגדר
+                    const inRange = !config.endDate || (isoDate <= config.endDate);
                     if (!inRange) {
                         console.log(`   -> דילגתי: התאריך ${isoDate} מאוחר מתאריך היעד.`);
                         continue;
                     }
-                    
                     const isPreferred = activeDoctorsFilter.length === 0 || activeDoctorsFilter.some(name => appt.docNameRaw.includes(name));
                     
                     if (!isPreferred) {
@@ -496,28 +533,72 @@ await page.waitForTimeout(300);
                         const bestAppt = bestApptsPerDoctor[doctorName];
                         const key = `${bestAppt.doctor}-${bestAppt.dateStr}`;
                         
-                        if (!sentInThisRun.has(key)) {
-                            try {
-                                if (isBetterAppointment(bestAppt.doctor, bestAppt.dateStr)) {
-                                    await sendEmailNotification(bestAppt.doctor, bestAppt.actualCity, bestAppt.dateStr);
-                                    updateMemory(bestAppt.doctor, bestAppt.dateStr, bestAppt.actualCity);
+                      if (!sentInThisRun.has(key)) {
+                                    try {
+                                        if (isBetterAppointment(bestAppt.doctor, bestAppt.dateStr)) {
+                                            
+                                            // 1. קודם כל שומרים לזיכרון המקומי (מקור אמת פנימי)
+                                            updateMemory(bestAppt.doctor, bestAppt.dateStr, bestAppt.actualCity);
 
-                                    const report = createExecutionReport(stats, {
-                                        familyMember: config.familyMember || 'ראשי',
-                                        specialization: config.selectedSpecialization || 'לא הוגדר',
-                                        city: bestAppt.actualCity,
-                                        doctor: bestAppt.doctor,
-                                        dateStr: bestAppt.dateStr
-                                    });
-                                    console.log(report);
-                                } else {
-                                    console.log(`   -> נמצא תור ל-${bestAppt.doctor}, אך הוא אינו מוקדם יותר מהתור השמור בזיכרון.`);
+                                          // 2. עדכון חכם ל-DB: רק אם התור החדש באמת מוקדם יותר ממה שמוצג כרגע בדשבורד
+                                            try {
+                                                const mongoose = require('mongoose');
+                                                const SearchTemplate = require('../../models/SearchTemplate');
+                                                if (mongoose.connection.readyState === 0) await mongoose.connect(process.env.MONGODB_URI);
+
+                                                const currentInDB = await SearchTemplate.findOne({ userId: config.userId, selectedGroup: config.selectedGroup });
+                                                let isSoFarBest = true;
+
+                                                if (currentInDB && currentInDB.lastBestFound) {
+                                                    const dbMatch = currentInDB.lastBestFound.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
+                                                    if (dbMatch) {
+                                                        const parseD = (d) => new Date(d.split(/[\.\/]/).reverse().join('-')).getTime();
+                                                        if (parseD(bestAppt.dateStr) >= parseD(dbMatch[0])) isSoFarBest = false;
+                                                    }
+                                                }
+
+                                                if (isSoFarBest) {
+                                                    const foundStr = `${bestAppt.dateStr} - ${bestAppt.doctor} (${bestAppt.actualCity})`;
+                                                    await SearchTemplate.updateOne(
+                                                        { userId: config.userId, selectedGroup: config.selectedGroup },
+                                                        { $set: { lastBestFound: foundStr } },
+                                                        { upsert: true }
+                                                    );
+                                                    console.log(`✅ [DB-UPDATING] נמצא תור קרוב יותר! מעדכן דשבורד ל: ${bestAppt.dateStr}`);
+                                                }
+                                            } catch (dbErr) {
+                                                console.error("❌ שגיאה בעדכון ה-DB:", dbErr.message);
+                                            }
+
+                                            // 3. עדכון המנצח של הסבב הנוכחי לצורך שליחת מייל בסיום
+                                            const parseD = (d) => new Date(d.split(/[\.\/]/).reverse().join('-')).getTime();
+                                            if (!bestApptForEmailThisRun || parseD(bestAppt.dateStr) < parseD(bestApptForEmailThisRun.dateStr)) {
+                                                bestApptForEmailThisRun = bestAppt;
+                                            }
+
+                                            // 4. חילוץ שם התחום והפקת דוח
+                                            const { CLALIT_GROUPS } = require('./constants/professions');
+                                            const groupName = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup))?.name || "כללי";
+                                            
+                                            console.log(`📡 [TRACE - clalit.js] שם קבוצה שזוהה: "${groupName}", קוד קבוצה בקונפיג: ${config.selectedGroup}`);
+                                            const report = createExecutionReport(stats, {
+                                                familyMember: config.familyMember || 'ראשי',
+                                                groupName: groupName,
+                                                specialization: config.selectedSpecialization || 'לא הוגדר',
+                                                city: bestAppt.actualCity,
+                                                doctor: bestAppt.doctor,
+                                                dateStr: bestAppt.dateStr,
+                                                searchStartTime: stats.startTime.toISOString()
+                                            });
+                                            console.log(report);
+                                        } else {
+                                            console.log(`   -> נמצא תור ל-${bestAppt.doctor}, אך הוא אינו מוקדם יותר מהתור השמור בזיכרון.`);
+                                        }
+                                        sentInThisRun.add(key);
+                                    } catch (generalErr) {
+                                        console.error(`⚠️ שגיאה כללית בעיבוד התור עבור ${bestAppt.doctor}:`, generalErr.message);
+                                    }
                                 }
-                                sentInThisRun.add(key);
-                            } catch (mailErr) {
-                                console.error(`⚠️ שגיאה בעיבוד ושליחת התור הטוב ביותר עבור ${bestAppt.doctor}:`, mailErr.message);
-                            }
-                        }
                     }
                 }
 
@@ -547,8 +628,38 @@ await page.waitForTimeout(300);
 
         console.log(`\n✅ סריקת כל הערים והדפים הסתיימה!`);
 
-    } catch (error) {
-        console.error("❌ שגיאה במהלך הבוט:", error.message);
+       // --- שליחת מייל רק אם נמצא שיפור בסבב הזה לעומת מה שקיים בדשבורד ---
+        if (bestApptForEmailThisRun) {
+            // קריאת המצב העדכני של הקונפיגורציה (שמסונכרנת עם ה-DB)
+            const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+            const lastDBDateStr = currentConfig.lastFoundDate ? currentConfig.lastFoundDate.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/)?.[0] : null;
+
+            let shouldSendMail = true;
+            const parseD = (d) => new Date(d.split(/[\.\/]/).reverse().join('-')).getTime();
+
+            if (lastDBDateStr && parseD(bestApptForEmailThisRun.dateStr) >= parseD(lastDBDateStr)) {
+                shouldSendMail = false;
+            }
+
+            if (shouldSendMail) {
+                console.log(`📧 נמצא תור קרוב יותר! שולח מייל סיכום: ${bestApptForEmailThisRun.dateStr}`);
+                try {
+                    await sendEmailNotification(
+                        bestApptForEmailThisRun.doctor, 
+                        bestApptForEmailThisRun.actualCity, 
+                        bestApptForEmailThisRun.dateStr, 
+                        config.email
+                    );
+                    console.log(`✅ המייל נשלח בהצלחה ליעד: ${config.email || 'ברירת מחדל'}`);
+                } catch (e) { 
+                    console.error("⚠️ שגיאה בשליחת המייל המסכם:", e.message); 
+                }
+            } else {
+                console.log(`ℹ️ הסבב הסתיים. נמצאו תורים, אך אף אחד מהם לא מקדים את התור שכבר מופיע בדשבורד (${lastDBDateStr}). לא נשלח מייל.`);
+            }
+        }
+    } catch (e) {
+        console.error("❌ שגיאה במהלך הבוט:", e.message);
         const currentUrl = page.url();
         if (currentUrl.includes('ResponseSorry') || error.message.includes('Timeout')) {
             console.log('🔄 זוהתה שגיאת סשן – מנקה עוגיות ומתחיל סבב חדש מיד...');
@@ -580,6 +691,13 @@ await page.waitForTimeout(300);
 
             let elapsed = 0;
             while (elapsed < totalWaitMs) {
+                // בדיקה אם המשתמש לחץ על 'עצור' בדשבורד בזמן ההמתנה
+                const configCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                if (!configCheck.runInLoop) {
+                    console.log("🛑 זוהתה בקשת עצירה מהדשבורד. מפסיק המתנה ויוצא מהלולאה.");
+                    break;
+                }
+
                 const randomWait = (Math.floor(Math.random() * 61) + 90) * 1000;
                 const sleepTime = Math.min(randomWait, totalWaitMs - elapsed);
                 await new Promise(resolve => setTimeout(resolve, sleepTime));
@@ -612,12 +730,12 @@ await page.waitForTimeout(300);
                 }
             }
 
-            const continueLoop = true;
-            if (continueLoop) {
+            const finalConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+            if (finalConfig.runInLoop) {
                 console.log("🔄 מתחיל סבב חדש – נשאר בתוך האתר ללא רענון...");
                 return runClalit(page);
             }
-            console.log("🏁 הבוט סיים את עבודתו.");
+            console.log("🏁 הבוט הופסק בהצלחה על ידי המשתמש.");
         }
     } // סוף finally
 } // סוף runClalit

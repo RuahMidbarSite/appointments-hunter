@@ -27,33 +27,24 @@ module.exports = async function handler(req, res) {
         currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     }
 
-    // משיכת התור המוקדם ביותר מהזיכרון הכולל רופא ועיר
+    // סנכרון מלא: משיכת התור המוקדם ביותר ישירות מהתבנית ב-Database
     let lastFoundDate = "טרם נמצאו תורים";
-    const memoryPath = path.join(process.cwd(), 'sent_appointments.json');
     
-    if (fs.existsSync(memoryPath)) {
-        const memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
-        let minTime = Infinity;
-        let bestDisplay = "";
+    try {
+        await dbConnect();
+        // חיפוש התבנית הספציפית לפי תעודת זהות ותחום
+        const template = await SearchTemplate.findOne({ 
+            userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID'), 
+            selectedGroup: currentConfig.selectedGroup 
+        });
 
-        for (const [docName, data] of Object.entries(memory)) {
-            // תמיכה בפורמט ישן (טקסט) ובפורמט חדש (אובייקט עם עיר)
-            const dateStr = typeof data === 'object' ? data.date : data;
-            const city = typeof data === 'object' ? data.city : "לא צוין יישוב";
-            
-            // חילוץ תאריך להשוואה (מנקה טקסט מיותר אם קיים)
-            const dateMatch = dateStr.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
-            if (dateMatch) {
-                const [_, d, m, y] = dateMatch;
-                const time = new Date(`${y}-${m}-${d}`).getTime();
-
-                if (time < minTime) {
-                    minTime = time;
-                    bestDisplay = `${dateMatch[0]} - ${docName} (${city})`;
-                }
-            }
+        if (template && template.lastBestFound) {
+            lastFoundDate = template.lastBestFound;
         }
-        if (bestDisplay) lastFoundDate = bestDisplay;
+    } catch (e) {
+        console.error("❌ שגיאה בסנכרון נתונים מה-DB לדשבורד:", e.message);
+        // גיבוי למקרה של תקלת תקשורת - נשתמש במה ששמור בקובץ הקונפיגורציה
+        lastFoundDate = currentConfig.lastFoundDate || "טרם נמצאו תורים";
     }
 
     return res.status(200).json({
@@ -62,7 +53,8 @@ module.exports = async function handler(req, res) {
       userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID'),
       userCode: currentConfig.userCode || cleanEnv('CLALIT_USER_CODE'),
       password: currentConfig.password || cleanEnv('CLALIT_PASSWORD'),
-      familyMember: currentConfig.familyMember || cleanEnv('CLALIT_FAMILY_MEMBER')
+      familyMember: currentConfig.familyMember || cleanEnv('CLALIT_FAMILY_MEMBER'),
+      email: currentConfig.email || cleanEnv('CLALIT_EMAIL') || cleanEnv('EMAIL_USER')
     });
   }
 
@@ -111,6 +103,37 @@ module.exports = async function handler(req, res) {
       }
       currentBotProcess = null;
 
+      // טיפול באיפוס תור אחרון (מחיקה מכל המקורות)
+      if (req.body && req.body.action === 'reset_last_found') {
+          try {
+              // 1. איפוס ב-Database עבור המשתמש והתחום הנוכחי
+              await SearchTemplate.updateOne(
+                  { userId: req.body.userId, selectedGroup: req.body.selectedGroup },
+                  { $set: { lastBestFound: "" } }
+              );
+
+              // 2. מחיקת קובץ הזיכרון המקומי (sent_appointments.json)
+              const memoryPath = path.join(process.cwd(), 'sent_appointments.json');
+              if (fs.existsSync(memoryPath)) {
+                  fs.writeFileSync(memoryPath, JSON.stringify({}, null, 2));
+              }
+
+              // 3. עדכון ה-config.json המקומי
+              if (fs.existsSync(configPath)) {
+                  const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                  cfg.lastFoundDate = "";
+                  cfg.doctorDates = {};
+                  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+              }
+
+            console.log("🗑️ הזיכרון אופס ב-DB ובקבצים.");
+            return res.status(200).json({ message: 'Memory reset successfully' });
+          } catch (err) {
+              console.error("Reset error:", err);
+              return res.status(500).json({ error: 'Failed to reset memory' });
+          }
+      }
+
       // בדיקה האם זו פקודת שמירה בלבד (ללא הפעלה מחדש של הבוט)
       if (req.body && req.body.action === 'save_only') {
           const cfgToSave = { ...req.body };
@@ -131,6 +154,11 @@ module.exports = async function handler(req, res) {
             cfg.botStatus = 'idle';
             fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
         }
+        if (currentBotProcess) {
+            console.log(`🪓 סוגר תהליך בוט פעיל (PID: ${currentBotProcess.pid})`);
+            currentBotProcess.kill('SIGINT');
+            currentBotProcess = null;
+        }
         console.log("⏹️ סריקה נעצרה לבקשת המשתמש.");
         return res.status(200).json({ message: 'Bot stopped successfully' });
       }
@@ -143,6 +171,7 @@ module.exports = async function handler(req, res) {
       if (!finalConfig.userCode) finalConfig.userCode = cleanEnv('CLALIT_USER_CODE');
       if (!finalConfig.password) finalConfig.password = cleanEnv('CLALIT_PASSWORD');
       if (!finalConfig.familyMember) finalConfig.familyMember = cleanEnv('CLALIT_FAMILY_MEMBER');
+      if (!finalConfig.email) finalConfig.email = cleanEnv('CLALIT_EMAIL') || cleanEnv('EMAIL_USER');
 
       // הבטחת סטטוס ראשוני כשאנחנו מפעילים בוט חדש (ואיפוס טיימר קודם)
       finalConfig.botStatus = 'active';

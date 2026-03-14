@@ -147,7 +147,7 @@ const displayName = option.shortLabel || (labelStr.includes('|') ? labelStr.spli
 
 export default function BotDashboard() {
    const [config, setConfig] = useState({
-       userId: '', userCode: '', password: '', familyMember: '', 
+       userId: '', userCode: '', password: '', familyMember: '', email: '', 
        loginMode: 'password',
        selectedCities: [], includeSurrounding: true, selectedDoctors: [], 
        selectedGroup: '', selectedSpecialization: '', insuranceType: 'הכל', 
@@ -160,21 +160,28 @@ export default function BotDashboard() {
 
     useEffect(() => {
         let timer;
-        if (botLiveStatus === 'idle' && config.runInLoop) {
-            const updateTimerFromServer = () => {
-                if (config.nextRunTime) {
-                    const now = Date.now();
-                    const diffSeconds = Math.max(0, Math.floor((config.nextRunTime - now) / 1000));
-                    setTimeLeft(diffSeconds);
+        // הטיימר יפעל רק אם הבוט במנוחה, מצב לולאה פעיל, ויש זמן יעד מוגדר בעתיד
+        const shouldShowTimer = botLiveStatus === 'idle' && config.runInLoop && config.nextRunTime && config.nextRunTime > Date.now();
+
+        if (shouldShowTimer) {
+            const updateTimer = () => {
+                const now = Date.now();
+                const diffSeconds = Math.max(0, Math.floor((config.nextRunTime - now) / 1000));
+                
+                if (diffSeconds <= 0) {
+                    setTimeLeft(null);
+                    clearInterval(timer);
                 } else {
-                    setTimeLeft(prev => (prev !== null && prev > 0 ? prev - 1 : 0));
+                    setTimeLeft(diffSeconds);
                 }
             };
-            updateTimerFromServer();
-            timer = setInterval(updateTimerFromServer, 1000);
-        } else { if (timeLeft !== null) setTimeLeft(null); }
+            updateTimer();
+            timer = setInterval(updateTimer, 1000);
+        } else {
+            setTimeLeft(null);
+        }
         return () => clearInterval(timer);
-    }, [botLiveStatus, config.runInLoop, config.nextRunTime]); 
+    }, [botLiveStatus, config.runInLoop, config.nextRunTime]);
 
     const formatTime = (seconds) => {
         if (seconds === null) return "--:--";
@@ -241,7 +248,10 @@ const [dbSearchResults, setDbSearchResults] = useState([]);
         // 1. חילוץ שם התחום בצורה נכונה
         const selectedGroupObj = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup));
         const groupName = selectedGroupObj ? selectedGroupObj.name : "כללי";
-        const cityName = config.selectedCities.length > 0 ? config.selectedCities[0] : "לא נבחרה עיר";
+        // יצירת רשימת ערים מופרדת בפסיקים עבור התצוגה ושם התבנית
+const cityName = config.selectedCities.length > 0 
+    ? config.selectedCities.join(', ') 
+    : "לא נבחרה עיר";
         
         // 2. טיפול במידע על הרופא
         let doctorLabelForConfirm = "";
@@ -267,12 +277,13 @@ const [dbSearchResults, setDbSearchResults] = useState([]);
         const timePart = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
         // 4. בניית שם התבנית ל-DB (שורה אחת מפורטת)
-        const autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | תחום: ${groupName}${doctorLabelForDB} | עיר: ${cityName} | תאריך: ${datePart} | שעה: ${timePart}`;
+        const autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | דוא"ל: ${config.email || 'לא הוזן'} | תחום: ${groupName}${doctorLabelForDB} | עיר: ${cityName} | תאריך: ${datePart} | שעה: ${timePart}`;
         
         // 5. הודעת אישור מפורטת ומחולקת לשורות
         const confirmMessage = `לשמור תבנית חיפוש חדשה?\n\n` +
                                `👤 שם: ${config.familyMember || 'ללא שם'}\n` +
                                `💳 תז: ${config.userId || ''}\n` +
+                               `📧 דוא"ל: ${config.email || 'לא הוזן'}\n` +
                                `📋 תחום: ${groupName}${doctorLabelForConfirm}\n` +
                                `📍 עיר: ${cityName}\n` +
                                `📅 תאריך: ${datePart}\n` +
@@ -300,21 +311,27 @@ const [dbSearchResults, setDbSearchResults] = useState([]);
             alert("❌ שגיאה בשמירה ל-DB");
         }
     };
-    const deleteTemplate = async (e, id) => {
-        e.stopPropagation(); // מונע מהקליק להפעיל את טעינת התבנית
-        if (!confirm("האם אתה בטוח שברצונך למחוק את התבנית?")) return;
+    const handleResetLastFound = async () => {
+        if (!confirm("האם לאפס את התור האחרון שנמצא? (זה ימחק את התור גם מה-Database)")) return;
+        
+        // הכנת האובייקט לאיפוס כולל מזהים עבור ה-DB
+        const resetData = { 
+            action: 'reset_last_found',
+            userId: config.userId,
+            selectedGroup: config.selectedGroup
+        };
+
+        // עדכון מקומי של ה-UI
+        setConfig(prev => ({ ...prev, lastFoundDate: '', doctorDates: {} }));
         
         try {
-            const res = await fetch('/api/save-config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'delete_template', id })
+            await fetch('/api/save-config', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(resetData) 
             });
-            if (res.ok) {
-                setDbSearchResults(prev => prev.filter(t => t._id !== id));
-            }
-        } catch (err) {
-            console.error("Delete error:", err);
+        } catch (err) { 
+            console.error("Reset error:", err); 
         }
     };
     const handleCitiesChange = (newCities) => {
@@ -336,14 +353,60 @@ const [dbSearchResults, setDbSearchResults] = useState([]);
     };
 
     const handleRun = async (isSingle = false) => {
-        const updated = { ...config, runInLoop: !isSingle };
-        const res = await fetch('/api/save-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
-        if (res.ok) { setConfig(updated); setBotLiveStatus(isSingle ? 'idle' : 'active'); }
+        // איפוס nextRunTime כדי למנוע הופעת טיימר מהסבב הקודם מיד עם הלחיצה
+        const updated = { ...config, runInLoop: !isSingle, nextRunTime: null };
+        
+        // הגנה: מחיקת פקודות תקועות מהזיכרון כדי שהשרת יריץ ולא יעצור
+        delete updated.action; 
+        
+        try {
+            const res = await fetch('/api/save-config', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(updated) 
+            });
+            
+            if (res.ok) { 
+                setConfig(updated); 
+                setBotLiveStatus(isSingle ? 'idle' : 'active');
+                // איפוס מקומי של הטיימר בתצוגה כדי להעלימו מהמסך מיד
+                setTimeLeft(null); 
+            }
+        } catch (err) {
+            console.error("Run error:", err);
+        }
+    };
+
+    const deleteTemplate = async (e, id) => {
+        e.stopPropagation();
+        if (!confirm("האם אתה בטוח שברצונך למחוק את התבנית?")) return;
+        try {
+            const res = await fetch('/api/save-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete_template', id })
+            });
+            if (res.ok) {
+                setDbSearchResults(prev => prev.filter(t => t._id !== id));
+            }
+        } catch (err) {
+            console.error("Delete error:", err);
+        }
     };
 
     const handleStop = async () => {
-        setConfig(prev => ({ ...prev, runInLoop: false })); setBotLiveStatus('idle');
-        await fetch('/api/save-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stop' }) });
+        const updated = { ...config, runInLoop: false };
+        // חשוב: לא שומרים את פקודת העצירה בזיכרון של הממשק
+        delete updated.action; 
+        setConfig(updated);
+        setBotLiveStatus('idle');
+        setTimeLeft(null);
+        await fetch('/api/save-config', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            // מוסיפים את העצירה רק נקודתית לשליחה לשרת
+            body: JSON.stringify({ ...updated, action: 'stop' }) 
+        });
     };
 
     const getDoctorsList = () => {
@@ -398,7 +461,14 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                 <p className="text-[#00a896] text-xs font-bold leading-tight">סריקה חכמה ללקוחות כללית</p>
                             </div>
                             {config.lastFoundDate && (
-                                <div className="bg-amber-50 rounded-xl border-2 border-amber-200 py-1.5 px-3 shadow-sm max-w-[320px]">
+                                <div className="bg-amber-50 rounded-xl border-2 border-amber-200 py-1.5 px-3 shadow-sm max-w-[320px] relative group">
+                                    <button 
+                                        onClick={handleResetLastFound}
+                                        className="absolute -left-2 -top-2 bg-amber-200 text-amber-900 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-amber-300 hover:bg-amber-300 z-10"
+                                        title="איפוס תור אחרון"
+                                    >
+                                        ✕
+                                    </button>
                                     <div className="flex items-center gap-2 border-b border-amber-200 mb-1 pb-0.5">
                                         <span className="text-xs font-black text-amber-800 uppercase opacity-75 whitespace-nowrap">התור המוקדם ביותר:</span>
                                         <span className="text-lg font-black text-amber-900 leading-none">
@@ -470,6 +540,11 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                 <div className="flex items-center gap-2">
                                     <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">שם</label>
                                     <input type="text" name="familyMember" value={config.familyMember} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                </div>
+                          {/* שדה אימייל */}
+                                <div className="flex items-center gap-2 mt-1.5">
+                                    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">אימייל</label>
+                                    <input type="email" name="email" value={config.email} onChange={handleChange} dir="ltr" className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white text-right placeholder:text-right" placeholder="example@email.com" />
                                 </div>
                             </div>
                         </section>
@@ -659,28 +734,35 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                 <h2 className="text-2xl font-black text-[#005a4c] flex items-center gap-2">
                                     <span className="w-1.5 h-6 bg-[#8c4391] rounded-full"></span> תזמון
                                 </h2>
-                                {/* אינדיקטור מצב */}
-                                <div className={`px-3 py-1.5 rounded-full flex items-center gap-2 shadow-sm border transition-all min-w-[155px]
+                                {/* אינדיקטור מצב מוגדל */}
+                                <div className={`px-4 py-0.5 rounded-full flex items-center gap-3 shadow-sm border transition-all min-w-[165px]
                                     ${isLoopActive   ? 'bg-green-50 border-green-200' :
                                       isSingleActive ? 'bg-blue-50 border-blue-200' :
-                                      isWaiting      ? 'bg-amber-50 border-amber-200' :
+                                      isWaiting      ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-100' :
                                                        'bg-gray-50 border-gray-200'}`}>
-                                    <div className={`w-2.5 h-2.5 rounded-full shrink-0
+                                    <div className={`w-3.5 h-3.5 rounded-full shrink-0
                                         ${isLoopActive   ? 'bg-green-500 animate-pulse' :
                                           isSingleActive ? 'bg-blue-500 animate-pulse' :
-                                          isWaiting      ? 'bg-amber-400 animate-pulse' :
+                                          isWaiting      ? 'bg-amber-500 animate-pulse' :
                                                            'bg-gray-300'}`}>
                                     </div>
-                                    <span className={`text-sm font-black leading-tight
-                                        ${isLoopActive   ? 'text-green-700' :
-                                          isSingleActive ? 'text-blue-700' :
-                                          isWaiting      ? 'text-amber-700' :
-                                                           'text-gray-400'}`}>
-                                        {isLoopActive   ? 'רץ בלולאה' :
-                                         isSingleActive ? 'בבדיקה' :
-                                         isWaiting      ? `⏳ ${formatTime(timeLeft)} להמתנה` :
-                                                          'במנוחה'}
-                                    </span>
+                                    <div className="flex flex-col items-center justify-center">
+                                        <span className={`font-black leading-none transition-all
+                                            ${isLoopActive   ? 'text-green-700 text-lg' :
+                                              isSingleActive ? 'text-blue-700 text-lg' :
+                                              isWaiting      ? 'text-amber-900 text-4xl mt-1' :
+                                                               'text-gray-400 text-lg'}`}>
+                                            {isLoopActive   ? 'רץ בלולאה' :
+                                             isSingleActive ? 'בבדיקה' :
+                                             isWaiting      ? formatTime(timeLeft) :
+                                                              'במנוחה'}
+                                        </span>
+                                        {isWaiting && (
+                                            <span className="text-[13px] font-black text-amber-700 uppercase tracking-tight leading-none mb-1">
+                                                זמן לסבב הבא
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                             <div className="space-y-3">
@@ -748,17 +830,12 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                             </button>
 
                             <a 
-                                href="/api/download-report" 
-                                download 
-                                onClick={(e) => {
-                                    const btn = e.currentTarget;
-                                    btn.classList.add('ring-4', 'ring-gray-400/50', 'bg-gray-700');
-                                    setTimeout(() => btn.classList.remove('ring-4', 'ring-gray-400/50', 'bg-gray-700'), 300);
-                                }}
-                                className="col-span-2 py-2 bg-gray-600 hover:bg-gray-700 text-white font-black text-lg rounded-2xl text-center flex items-center justify-center gap-2 transition-all active:scale-95"
-                            >
-                                📄 דוח
-                            </a>
+    href="/api/download-report" 
+    target="_blank" 
+    className="col-span-2 py-3 bg-gradient-to-r from-teal-700 to-teal-900 hover:from-teal-600 hover:to-teal-800 text-white font-black text-xl rounded-3xl text-center flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95"
+>
+    📊 הורד מצגת דוח PDF
+</a>
                         </div>
                     </div>
                 </div>

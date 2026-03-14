@@ -4,100 +4,119 @@ import path from 'path';
 export default function handler(req, res) {
     const reportPath = path.join(process.cwd(), 'reports_history.log');
     
-    // בדיקה אם הקובץ קיים פיזית על הדיסק
     if (!fs.existsSync(reportPath)) {
-        const initialContent = "--- דוח צייד התורים - היסטוריית ריצות ---\n";
-        fs.writeFileSync(reportPath, initialContent, 'utf8');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.status(200).send('<h2 style="text-align:center; font-family:sans-serif; margin-top:50px;">טרם נמצאו נתונים בלוג</h2>');
     }
 
     try {
         const fileContent = fs.readFileSync(reportPath, 'utf8');
-        const lines = fileContent.split('\n');
+        const lines = fileContent.trim().split('\n').reverse();
         
-        let totalLoops = 0;
         let appointmentsFound = 0;
-        const doctorsCount = {};
+        const citiesCount = {};
+        const groupCount = {}; 
         const hoursCount = {};
-        const datesFound = [];
 
-        // ניתוח הנתונים שורות-שורות
-        lines.forEach(line => {
-            // ספירת סבבי לולאה
-            if (line.includes('סבב סריקה הסתיים')) {
-                totalLoops++;
-            }
-            
-            // זיהוי שורות שבהן נמצא תור מוצלח
+        const logEntriesHtml = lines.map(line => {
             if (line.includes('נמצא תור:')) {
                 appointmentsFound++;
                 
-                // 1. חילוץ שעת המציאה מתוך הסוגריים המרובעים (למשל [9.3.2026, 12:30:44])
-                const timeMatch = line.match(/\[.*?,\s*(\d{1,2}):/);
-                if (timeMatch) {
-                    const hour = timeMatch[1];
+                // פונקציית חילוץ גמישה לרווחים וסימנים
+                const extract = (key) => {
+                    const regex = new RegExp(`${key}:\\s*([^|\\n]+)`);
+                    const match = line.match(regex);
+                    return match ? match[1].trim() : null;
+                };
+
+                const city = extract('עיר');
+                const group = extract('תחום');
+                
+                if (city) citiesCount[city] = (citiesCount[city] || 0) + 1;
+
+                // --- תיקון: חילוץ שם התחום ---
+                // שורות ישנות בלוג לא מכילות "תחום:" כלל — נספור רק שורות שהשדה קיים בהן
+                if (group) {
+                    groupCount[group] = (groupCount[group] || 0) + 1;
+                }
+
+                // --- תיקון: חילוץ שעה נכון ---
+                // הפורמט בלוג הוא: [14.3.2026, 11:23:45]
+                // הביטוי הישן יכל לתפוס ספרות מהתאריך (כגון "26" מ-"2026")
+                // הביטוי החדש מחפש את השעה *אחרי* הפסיק שבתוך הסוגריים המרובעים
+                const hourMatch = line.match(/\[\d{1,2}[./]\d{1,2}[./]\d{4},\s*(\d{1,2}):\d{2}:\d{2}/);
+                if (hourMatch) {
+                    const hour = hourMatch[1].padStart(2, '0');
                     hoursCount[hour] = (hoursCount[hour] || 0) + 1;
                 }
 
-                // 2. חילוץ שם הרופא
-                const docMatch = line.match(/רופא:\s*(.+?)\s*\|/);
-                if (docMatch) {
-                    const doc = docMatch[1].trim();
-                    doctorsCount[doc] = (doctorsCount[doc] || 0) + 1;
-                }
-
-                // 3. חילוץ תאריך התור הפנוי
-                const dateMatch = line.match(/בתאריך\s*([\d\.\/]+)/);
-                if (dateMatch) {
-                    datesFound.push(dateMatch[1]);
-                }
+                const content = line.includes(']') ? line.split(']')[1].trim() : line;
+                return `<div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:12px; border-radius:12px; margin-bottom:8px; font-family:sans-serif; font-size:14px; color:#14532d;">
+                            <b>🎯</b> ${content}
+                        </div>`;
             }
-        });
+            return '';
+        }).join('');
 
-        // בניית תקציר הסטטיסטיקות שיופיע בראש הדוח
-        let summary = "========================================================\n";
-        summary += "📊 דוח צייד התורים - תקציר סטטיסטי וניתוח נתונים 📊\n";
-        summary += "========================================================\n\n";
-        
-        summary += `🔄 סך הכל סבבי סריקה שתועדו: ${totalLoops > 0 ? totalLoops : '(החל להתעדכן כעת)'}\n`;
-        summary += `🎯 סך הכל תורים שנמצאו: ${appointmentsFound}\n\n`;
+        const groupStatsHtml = Object.entries(groupCount).length > 0 
+            ? Object.entries(groupCount).sort((a,b) => b[1]-a[1]).map(([name, count]) => `
+                <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9; font-family:sans-serif;">
+                    <span style="font-weight:bold; color:#334155;">${name}</span>
+                    <span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:8px; font-weight:900; font-size:13px;">${count}</span>
+                </div>`).join('')
+            : '<p style="text-align:center; color:#94a3b8; font-family:sans-serif; padding:20px;">אין נתוני תחומים — הנתונים ייצברו מהסריקה הבאה</p>';
 
-        if (appointmentsFound > 0) {
-            summary += "🏆 הרופאים שהתפנו הכי הרבה פעמים:\n";
-            // מיון רופאים לפי כמות התורים מהגבוה לנמוך
-            Object.entries(doctorsCount)
-                .sort((a, b) => b[1] - a[1])
-                .forEach(([doc, count]) => {
-                    summary += `   - ${doc}: ${count} פעמים\n`;
-                });
+        const heatMapHtml = Object.entries(hoursCount).sort().map(([h, c]) => `
+            <div style="margin-bottom:8px; display:flex; align-items:center; gap:10px; font-family:sans-serif;">
+                <span style="width:40px; font-weight:bold; color:#64748b; font-size:12px;">${h}:00</span>
+                <div style="flex:1; background:#f1f5f9; height:8px; border-radius:10px; overflow:hidden;">
+                    <div style="width:${Math.min((c/appointmentsFound)*100*2.5, 100)}%; background:#0d9488; height:100%;"></div>
+                </div>
+                <span style="font-weight:bold; color:#0d9488; font-size:12px;">${c}</span>
+            </div>`).join('');
 
-            summary += "\n⏰ השעות ה\"חמות\" ביותר למציאת תור:\n";
-            // מיון שעות לפי אחוזי ההצלחה
-            Object.entries(hoursCount)
-                .sort((a, b) => b[1] - a[1])
-                .forEach(([hour, count]) => {
-                    summary += `   - סביבות השעה ${hour}:00: ${count} תורים\n`;
-                });
+        const htmlContent = `
+            <html dir="rtl" lang="he">
+            <head><meta charset="UTF-8"><title>דוח פעילות</title></head>
+            <body style="background:#f1f5f9; padding:20px; font-family:sans-serif; text-align:right;">
+                <div style="max-width:800px; margin:0 auto; background:white; padding:40px; border-radius:30px; border:1px solid #e2e8f0; position:relative;">
+                    <button onclick="window.print()" style="position:absolute; left:40px; top:40px; background:#005a4c; color:white; border:none; padding:10px 20px; border-radius:12px; font-weight:bold; cursor:pointer;" class="no-print">🖨️ שמור PDF</button>
+                    <style>@media print {.no-print {display:none} body {padding:0}}</style>
+                    <h1 style="color:#0f172a; margin-bottom:30px;">📋 דוח פעילות</h1>
+                    
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:15px; margin-bottom:30px; text-align:center; color:white;">
+                        <div style="background:#00a896; padding:20px; border-radius:20px;">
+                            <div style="font-size:12px;">תורים</div><div style="font-size:30px; font-weight:900;">${appointmentsFound}</div>
+                        </div>
+                        <div style="background:#4f46e5; padding:20px; border-radius:20px;">
+                            <div style="font-size:12px;">ערים</div><div style="font-size:30px; font-weight:900;">${Object.keys(citiesCount).length}</div>
+                        </div>
+                        <div style="background:#f59e0b; padding:20px; border-radius:20px;">
+                            <div style="font-size:12px;">תחומים</div><div style="font-size:30px; font-weight:900;">${Object.keys(groupCount).length}</div>
+                        </div>
+                    </div>
 
-            summary += "\n📅 התאריכים שהתפנו (לפי סדר מציאתם):\n";
-            // הדפסת התאריכים (מוגבל ל-15 האחרונים כדי לא להעמיס)
-            const recentDates = datesFound.slice(-15);
-            summary += `   - ${recentDates.join(', ')}\n`;
-        }
+                    <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:25px; margin-bottom:30px;">
+                        <div style="background:#f8fafc; padding:20px; border-radius:20px; border:1px solid #e2e8f0;">
+                            <h3 style="margin-top:0; color:#1e293b;">⏰ שעות זהב</h3>
+                            ${heatMapHtml}
+                        </div>
+                        <div style="background:white; padding:20px; border-radius:20px; border:1px solid #e2e8f0;">
+                            <h3 style="margin-top:0; color:#1e293b;">📈 לפי תחום</h3>
+                            ${groupStatsHtml}
+                        </div>
+                    </div>
+                    
+                    <h3 style="color:#1e293b;">📜 היסטוריה</h3>
+                    <div style="max-height:400px; overflow-y:auto;">${logEntriesHtml}</div>
+                </div>
+            </body>
+            </html>
+        `;
 
-        summary += "\n========================================================\n";
-        summary += "📄 פירוט מלא של היסטוריית הריצות (יומן מערכת):\n";
-        summary += "========================================================\n\n";
-
-        // הדבקת התקציר החכם מעל הלוג המקורי השלם
-        const finalOutput = summary + fileContent;
-
-        // הגדרת כותרות התגובה כדי לגרום לדפדפן להוריד קובץ טקסט
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename=bot_smart_report.txt');
-        return res.send(finalOutput);
-        
-    } catch (error) {
-        console.error("שגיאה בשליחת הדוח:", error);
-        return res.status(500).json({ error: 'נכשלה גישה לקובץ הדוח' });
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.status(200).send(htmlContent);
+    } catch (e) { 
+        return res.status(500).send("Error generating report"); 
     }
 }

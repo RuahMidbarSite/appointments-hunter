@@ -18,6 +18,7 @@ const SearchTemplateSchema = new mongoose.Schema({
     loopFrequency: String,
     startTime: String,
     endTime: String,
+    lastBestFound: String, // מחרוזת של התור המוקדם ביותר שנמצא לתבנית זו
     // השדות החדשים
     saveDate: String, // יום.חודש
     saveTime: String, // שעה:דקה

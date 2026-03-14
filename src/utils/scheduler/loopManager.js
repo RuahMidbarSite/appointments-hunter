@@ -89,21 +89,14 @@ const updateMemory = (docName, dateStr, city) => {
         config.doctorDates[docName] = dateStr;
         
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log(`📊 [DASHBOARD-UPDATE] המידע עודכן ב-config.json: ${dateStr} עבור ${docName}`);
     } catch (err) {
-        console.error("שגיאה בעדכון קובץ config.json בתצוגה:", err);
+        console.error("❌ [DASHBOARD-UPDATE] שגיאה בעדכון config.json:", err.message);
     }
     // -----------------------------------------------------------------
 
     // 2. רישום בדוח הריצה (עבור כפתור הדוח בדשבורד)
-    const reportPath = path.join(process.cwd(), 'reports_history.log');
-    const timestamp = new Date().toLocaleString('he-IL');
-    const logEntry = `[${timestamp}] נמצא תור: ${dateStr} | רופא: ${docName} | עיר: ${finalCity}\n`;
-    
-    try {
-        fs.appendFileSync(reportPath, logEntry, 'utf8');
-    } catch (err) {
-        console.error("שגיאה בכתיבה לדוח המערכת:", err);
-    }
+    // הרישום ללוג הוסר מכאן כי הוא מבוצע בצורה מפורטת יותר ב-reportGenerator.js
 };
 
 /**
@@ -136,10 +129,15 @@ async function waitMinutes(range) {
     }
     // ----------------------------------------------
 
-    const checkStep = 5000; // בודק כל 5 שניות אם המשתמש עצר את הבוט
+    const checkStep = 1000; // בדיקה בכל שנייה אחת לעצירה מהירה
     for (let i = 0; i < ms; i += checkStep) {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        if (!cfg.runInLoop) return false; // המשתמש כיבה את הלולאה בדשבורד
+        try {
+            const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            if (!cfg.runInLoop) {
+                console.log("🛑 זיהיתי פקודת עצירה בזמן המתנה. יוצא...");
+                return false;
+            }
+        } catch (e) {}
         await new Promise(resolve => setTimeout(resolve, checkStep));
     }
     return true;

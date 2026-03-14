@@ -16,22 +16,17 @@ function calculateWaitTime(dateStr) {
  * יוצר דו"ח מפורט על מציאת תור
  */
 function createFoundAppointmentReport(stats, apptDetails) {
+    // לוג מעקב שמדפיס את כל הנתונים שהתקבלו לפני כתיבתם ללוג
+    console.log(`💾 [TRACE - reportGenerator] אובייקט apptDetails שהתקבל:`, JSON.stringify(apptDetails, null, 2));
     const now = new Date();
     const runDuration = Math.round((now - stats.startTime) / 1000 / 60);
     const waitDays = calculateWaitTime(apptDetails.dateStr);
 
+  // וידוא ששם התחום קיים, ואם לא - חילוץ מהמקצוע או הגדרה כ'כללי'
+    const finalGroupName = apptDetails.groupName || apptDetails.selectedGroup || 'כללי';
+
     const report = `
-🔔 נמצא תור חדש! - דו"ח מפורט
----------------------------------
-🕒 זמן מציאה: ${now.toLocaleString('he-IL')}
-⏱️ זמן ריצת בוט עד למציאה: ${runDuration} דקות
----------------------------------
-👨‍⚕️ מקצוע/תחום: ${apptDetails.specialization || 'לא צוין'}
-📍 יישוב: ${apptDetails.city}
-👩‍⚕️ רופא: ${apptDetails.doctor}
-📅 תאריך התור: ${apptDetails.dateStr}
-⏳ זמן המתנה לתור: ${waitDays} ימים
----------------------------------
+[${now.toLocaleString('he-IL')}] נמצא תור: ${apptDetails.dateStr} | תחום: ${finalGroupName} | מקצוע: ${apptDetails.specialization || 'לא צוין'} | רופא: ${apptDetails.doctor || 'לא צוין'} | עיר: ${apptDetails.city || 'לא צוין'} | הופעל ב: ${apptDetails.searchStartTime || 'לא צוין'}
 `;
     
     // שמירה לקובץ היסטוריה (אופציונלי)
