@@ -245,68 +245,83 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
         console.log("ממתין לסיום תהליך ההתחברות...");
         await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
 
+        // 1. התיקון לפופאפ (לחיצה אגרסיבית עוקפת שכבות)
         await page.evaluate(() => {
             setInterval(() => {
-                const continueButton = document.querySelector('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lnkSubButton');
-                if (continueButton) {
-                    const rect = continueButton.getBoundingClientRect();
-                    const isVisible = rect.width > 0 || rect.height > 0 || continueButton.offsetParent !== null;
-                    if (isVisible) {
-                        console.log('מזהה פופאפ חוסר פעילות של הכללית, לוחץ על המשך...');
-                        continueButton.click();
-                        return;
-                    }
+                const continueBtn = document.querySelector('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lnkSubButton');
+                if (continueBtn && continueBtn.offsetParent !== null) {
+                    console.log('🚨 [POPUP-FIX] נמצא פופאפ - מבצע לחיצה ישירה...');
+                    continueBtn.click();
+                    return;
                 }
-                const allLinks = Array.from(document.querySelectorAll('a, button'));
-                const continueByText = allLinks.find(el => el.innerText && el.innerText.trim() === 'המשך');
-                if (continueByText) {
-                    console.log('מזהה פופאפ חוסר פעילות (לפי טקסט), לוחץ על המשך...');
-                    continueByText.click();
+                const allLinks = Array.from(document.querySelectorAll('a.lnkSubButton, button'));
+                const backupBtn = allLinks.find(el => el.innerText && el.innerText.includes('המשך'));
+                if (backupBtn && backupBtn.offsetParent !== null) {
+                    console.log('🚨 [POPUP-FIX] נמצא כפתור "המשך" לפי טקסט - מבצע לחיצה...');
+                    backupBtn.click();
                 }
             }, 3000);
         });
 
-        if (config.familyMember && config.familyMember.trim() !== '') {
-            console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
-            try {
-                const memberText = config.familyMember.trim();
-                await page.waitForSelector(`text="${memberText}"`, { state: 'visible', timeout: 15000 });
-                await page.click(`text="${memberText}"`);
-                console.log(`✅ עברתי בהצלחה לתיק של ${memberText}`);
-                await page.waitForTimeout(6000);
-            } catch (err) {
-                console.log(`⚠️ לא הצלחתי למצוא או ללחוץ על השם '${config.familyMember}'. ממשיך בתיק הראשי.`);
-            }
-        }
-
-        await page.click('text="שירותי האון־ליין"');
-        await page.waitForTimeout(2500);
-        await page.click('a[title="זימון תורים"]');
-
-        async function getTarget() {
-            const selector = '#ProfessionVisitButton';
-            if (await page.$(selector)) return page;
+        // פונקציית עזר לאיתור אלמנטים (גם בתוך iframe)
+        async function getTargetElement(selector) {
+            if (await page.$(selector).catch(() => null)) return page;
             for (const frame of page.frames()) {
-                if (await frame.$(selector)) return frame;
+                if (await frame.$(selector).catch(() => null)) return frame;
             }
             return null;
         }
 
-        let target = await getTarget();
-        if (!target) { await page.waitForTimeout(6000); target = await getTarget(); }
-
-        await target.click('#ProfessionVisitButton');
-        await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
-
         const groupId = config.selectedGroup || '32';
         const specId = config.selectedSpecialization || groupId;
-
-        console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
         
-       await target.selectOption('#SelectedGroupCode', groupId);
-await page.waitForTimeout(3000); 
-await target.selectOption('#SelectedSpecializationCode', specId);
-await page.waitForTimeout(1000);
+        // 2. הבדיקה: האם אנחנו כבר בדף החיפוש הפעיל?
+        let target = await getTargetElement('#SelectedCityName');
+
+        if (target) {
+            console.log("⚡ [STATE] סבב שני ומעלה: הטופס כבר פתוח. מדלג על ניווט ובחירת פרופיל וממשיך ישירות להזנת העיר.");
+        } else {
+            console.log("🔄 [STATE] סבב ראשון: מתחיל תהליך בחירת פרופיל וניווט...");
+
+            // ----- תחילת הקוד המקורי שעובד לך -----
+            if (config.familyMember && config.familyMember.trim() !== '') {
+                console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
+                try {
+                    const memberText = config.familyMember.trim();
+                    await page.waitForSelector(`text="${memberText}"`, { state: 'visible', timeout: 15000 });
+                    await page.click(`text="${memberText}"`);
+                    console.log(`✅ עברתי בהצלחה לתיק של ${memberText}`);
+                    await page.waitForTimeout(6000);
+                } catch (err) {
+                    console.log(`⚠️ לא הצלחתי למצוא או ללחוץ על השם '${config.familyMember}'. ממשיך בתיק הראשי.`);
+                }
+            }
+
+            await page.click('text="שירותי האון־ליין"').catch(() => {});
+            await page.waitForTimeout(2500);
+            await page.click('a[title="זימון תורים"]').catch(() => {});
+
+            target = await getTargetElement('#ProfessionVisitButton');
+            if (!target) { 
+                await page.waitForTimeout(6000); 
+                target = await getTargetElement('#ProfessionVisitButton'); 
+            }
+
+            if (target) {
+                await target.click('#ProfessionVisitButton');
+                await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
+
+                console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
+                await target.selectOption('#SelectedGroupCode', groupId);
+                await page.waitForTimeout(3000); 
+                await target.selectOption('#SelectedSpecializationCode', specId);
+                await page.waitForTimeout(1000);
+            } else {
+                console.log("❌ לא נמצא כפתור 'ProfessionVisitButton', מנסה להמשיך...");
+                target = page; // fallback למניעת קריסה
+            }
+            // ----- סוף הקוד המקורי שעובד לך -----
+        }
 
         const sentInThisRun = new Set(); 
         

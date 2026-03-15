@@ -773,6 +773,7 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                 <div className="space-y-0.5">
                                     <label className="text-base font-bold text-gray-500 pr-1">תדירות סריקה</label>
                                     <select value={config.loopFrequency} onChange={(e) => setConfig({...config, loopFrequency: e.target.value})} className="w-full px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl bg-white outline-none">
+                                        <option value="0-5">בין 0 ל-5 דקות (בדיקות)</option>
                                         <option value="10-15">בין 10 ל-15 דקות</option>
                                         <option value="25-30">בין 25 ל-30 דקות</option>
                                         <option value="40-45">בין 40 ל-45 דקות</option>
