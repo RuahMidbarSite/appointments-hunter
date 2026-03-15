@@ -68,13 +68,22 @@ module.exports = async function handler(req, res) {
 
       // חיפוש תבניות ב-DB
       if (req.body.action === 'search_templates') {
-          const query = req.body.query;
+          const query = req.body.query || '';
+          
+          if (!query.trim()) {
+              return res.status(200).json([]);
+          }
+
+          // חיפוש ממוקד: אך ורק בשדות ש*מתחילים* בתווים שהוקלדו (שימוש בסימן ^)
           const templates = await SearchTemplate.find({
               $or: [
-                  { templateName: { $regex: query, $options: 'i' } },
-                  { userId: { $regex: query, $options: 'i' } }
+                  { familyMember: { $regex: `^${query}`, $options: 'i' } },
+                  { userId: { $regex: `^${query}`, $options: 'i' } }
               ]
-          }).limit(5);
+          })
+          .sort({ familyMember: 1 }) // מסדר אלפביתית לפי שם בן המשפחה
+          .limit(15); 
+          
           return res.status(200).json(templates);
       }
 

@@ -157,7 +157,7 @@ export default function BotDashboard() {
 
     const [botLiveStatus, setBotLiveStatus] = useState('idle');
     const [timeLeft, setTimeLeft] = useState(null);
-
+    const hasLoadedInitialConfig = useRef(false);
     useEffect(() => {
         let timer;
         // הטיימר יפעל רק אם הבוט במנוחה, מצב לולאה פעיל, ויש זמן יעד מוגדר בעתיד
@@ -191,15 +191,14 @@ export default function BotDashboard() {
     };
 
     useEffect(() => {
-        let hasLoadedInitialConfig = false;
         const fetchBotData = async () => {
             try {
                 const response = await fetch(`/api/save-config?t=${new Date().getTime()}`);
                 if (response.ok) {
                     const data = await response.json();
-                    if (!hasLoadedInitialConfig) {
+                    if (!hasLoadedInitialConfig.current) {
                         setConfig(prev => ({ ...prev, ...data }));
-                        hasLoadedInitialConfig = true;
+                        hasLoadedInitialConfig.current = true;
                     } else {
                         setConfig(prev => ({ 
                             ...prev, lastFoundDate: data.lastFoundDate || prev.lastFoundDate, 
@@ -211,10 +210,15 @@ export default function BotDashboard() {
                 }
             } catch (error) { console.error("Sync error:", error); }
         };
+        
         fetchBotData(); 
-        const interval = setInterval(fetchBotData, 3000); 
+        
+        // קצב רענון אדפטיבי: 3 שניות בזמן ריצה, 15 שניות בזמן מנוחה/עצירה
+        const pollingRate = botLiveStatus === 'active' ? 3000 : 15000;
+        const interval = setInterval(fetchBotData, pollingRate); 
+        
         return () => clearInterval(interval);
-    }, []);
+    }, [botLiveStatus]); // ה-useEffect ירוץ מחדש וישנה את הקצב בכל פעם שהסטטוס משתנה
 
     const handleChange = (e) => { setConfig(prev => ({ ...prev, [e.target.name]: e.target.value })); };
     const handleAutoSave = async (updated) => { 
@@ -230,7 +234,11 @@ export default function BotDashboard() {
 const [dbSearchResults, setDbSearchResults] = useState([]);
 
     const searchTemplates = async (query) => {
-        if (query.length < 2) { setDbSearchResults([]); return; }
+        // אם השדה ריק, מנקה את התוצאות מיד. אחרת - מחפש החל מהאות הראשונה.
+        if (!query || query.trim() === '') { 
+            setDbSearchResults([]); 
+            return; 
+        }
         try {
             const res = await fetch('/api/save-config', {
                 method: 'POST',
@@ -584,7 +592,33 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                                     dir="rtl"
                                                     onClick={() => { 
                                                         const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
-                                                        setConfig(prev => ({ ...prev, ...cleanData })); 
+                                                        
+                                                        // 1. שולפים את התור המעודכן ביותר שנשמר ב-DB לתבנית זו
+                                                        if (cleanData.lastBestFound) {
+                                                            cleanData.lastFoundDate = cleanData.lastBestFound;
+                                                            
+                                                            // חילוץ תאריך ושם רופא כדי לעדכן גם את הכרטיסייה למטה
+                                                            // דוגמה למבנה: "20.03.2026 - דורון (הרצליה)"
+                                                            const parts = cleanData.lastBestFound.split('-');
+                                                            if (parts.length >= 2) {
+                                                                const datePart = parts[0].trim();
+                                                                // לוקח את החלק השני, ומפריד אותו מהעיר שבסוגריים
+                                                                const docPart = parts[1].split('(')[0].trim(); 
+                                                                
+                                                                cleanData.doctorDates = cleanData.doctorDates || {};
+                                                                cleanData.doctorDates[docPart] = datePart;
+                                                            }
+                                                        } else if (!cleanData.lastFoundDate) {
+                                                            cleanData.lastFoundDate = ''; 
+                                                        }
+                                                        
+                                                        // 2. מעדכנים את הסטייט המקומי
+                                                        const updatedConfig = { ...config, ...cleanData };
+                                                        setConfig(updatedConfig); 
+                                                        
+                                                        // 3. קריטי: שומרים מיד לשרת 
+                                                        handleAutoSave(updatedConfig);
+                                                        
                                                         setDbSearchResults([]); 
                                                     }}
                                                 >
