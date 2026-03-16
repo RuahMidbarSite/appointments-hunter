@@ -108,20 +108,49 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, isObjec
     return (
         <div className="relative" ref={dropdownRef}>
             <div className="relative flex items-center">
-               <input 
-                    type="text"
-                    className={`w-full px-4 py-1.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-xl font-medium shadow-sm outline-none focus:ring-2 ${focusClass}`}
-                    placeholder={isOpen && selected.length > 0 ? getSelectedLabels() : placeholder}
-                    value={isOpen ? searchTerm : getSelectedLabels()}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        if (!isOpen) setIsOpen(true);
+<div 
+    className={`w-full px-2 py-1.5 rounded-xl bg-white border border-gray-200 shadow-sm flex flex-wrap gap-2 items-center cursor-text min-h-[46px] focus-within:ring-2 ${focusClass}`}
+    onClick={() => {
+        setIsOpen(true);
+        dropdownRef.current?.querySelector('input')?.focus();
+    }}
+>
+    {/* תצוגת הבחירות כצ'יפים (Tags) - תמיד גלויים */}
+    {selected.map(val => {
+        const option = isObject ? (options || []).find(o => String(o.key || o.id) === String(val)) : null;
+        const label = isObject ? (option?.shortLabel || option?.label || val) : val;
+        const displayLabel = String(label).split('|')[0].trim();
+
+        return (
+            <span key={val} className="flex items-center gap-2 bg-blue-50 text-blue-700 pr-1.5 pl-3 py-1 rounded-full text-base font-bold border border-blue-200 group/chip hover:bg-blue-100 transition-colors">
+                <button 
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onChange(selected.filter(item => item !== val));
                     }}
-                    onFocus={() => { setIsOpen(true); setSearchTerm(''); }}
-                />
-                {selected.length > 0 && !isOpen && (
-                    <button onClick={(e) => { e.stopPropagation(); onChange([]); }} className="absolute left-3 bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center text-xl">✕</button>
-                )}
+                    className="text-blue-300 hover:text-red-500 hover:bg-red-50 w-5 h-5 rounded-full flex items-center justify-center transition-all text-xs font-black"
+                >
+                    ✕
+                </button>
+                <span className="leading-none">{displayLabel}</span>
+            </span>
+        );
+    })}
+
+    {/* שדה הקלדה לחיפוש */}
+    <input 
+        type="text"
+        className="flex-1 bg-transparent border-none outline-none text-xl font-medium min-w-[100px] text-gray-800"
+        placeholder={selected.length === 0 ? placeholder : ""}
+        value={searchTerm}
+        onChange={(e) => {
+            setSearchTerm(e.target.value);
+            if (!isOpen) setIsOpen(true);
+        }}
+        onFocus={() => setIsOpen(true)}
+    />
+</div>
             </div>
             {isOpen && (
                 <div className="absolute z-50 min-w-full mt-1 right-0 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
