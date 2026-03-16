@@ -606,27 +606,46 @@ await page.waitForTimeout(300);
                                                 if (mongoose.connection.readyState === 0) await mongoose.connect(process.env.MONGODB_URI);
 
                                                 const currentInDB = await SearchTemplate.findOne({ userId: config.userId, selectedGroup: config.selectedGroup });
-                                                let isSoFarBest = true;
+let isSoFarBest = true;
 
-                                                if (currentInDB && currentInDB.lastBestFound) {
-                                                    const dbMatch = currentInDB.lastBestFound.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
-                                                    if (dbMatch) {
-                                                        const parseD = (d) => new Date(d.split(/[\.\/]/).reverse().join('-')).getTime();
-                                                        if (parseD(bestAppt.dateStr) >= parseD(dbMatch[0])) isSoFarBest = false;
-                                                    }
-                                                }
+if (currentInDB && currentInDB.lastBestFound) {
+    const dbMatch = currentInDB.lastBestFound.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
+    if (dbMatch) {
+        const parseD = (d) => {
+            const parts = d.split(/[\.\/]/);
+            return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+        };
+        // השוואה כרונולוגית אבסולוטית
+        if (parseD(bestAppt.dateStr) >= parseD(dbMatch[0])) {
+            isSoFarBest = false;
+        }
+    }
+}
 
                                                 if (isSoFarBest) {
-                                                    // 3. בניית מחרוזת תצוגה נקייה עבור הבאנר הצהוב בדשבורד
-                                                    const foundStr = `${bestAppt.dateStr} - ${cleanDoctorName} (${bestAppt.actualCity})`;
-                                                    
-                                                    await SearchTemplate.updateOne(
-                                                        { userId: config.userId, selectedGroup: config.selectedGroup },
-                                                        { $set: { lastBestFound: foundStr } },
-                                                        { upsert: true }
-                                                    );
-                                                    console.log(`✅ [DB-UPDATING] נמצא תור! מעדכן דשבורד ל: ${foundStr}`);
-                                                }
+    const cleanDoctorName = bestAppt.doctor.split('(')[0].trim();
+    const foundStr = `${bestAppt.dateStr} - ${cleanDoctorName} (${bestAppt.actualCity})`;
+    
+    // א. עדכון מסד הנתונים (MongoDB)
+    await SearchTemplate.updateOne(
+        { userId: config.userId, selectedGroup: config.selectedGroup },
+        { $set: { lastBestFound: foundStr } },
+        { upsert: true }
+    );
+
+    // ב. עדכון קובץ הקונפיגורציה המקומי (לסנכרון מיידי של הדשבורד)
+    const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+    currentConfig.lastFoundDate = foundStr;
+    currentConfig.lastBestFound = foundStr;
+    if (!currentConfig.doctorDates) currentConfig.doctorDates = {};
+    currentConfig.doctorDates[cleanDoctorName] = bestAppt.dateStr;
+    fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+
+    // ג. עדכון הזיכרון של שליחת המיילים (סנכרון מול sent_appointments.json)
+    updateMemory(cleanDoctorName, bestAppt.dateStr, bestAppt.actualCity);
+
+    console.log(`✅ [FULL-SYNC] ה-DB, הקונפיג וקובץ המיילים סונכרנו לתור: ${foundStr}`);
+}
                                             } catch (dbErr) {
                                                 console.error("❌ שגיאה בעדכון ה-DB:", dbErr.message);
                                             }
@@ -642,16 +661,26 @@ await page.waitForTimeout(300);
                                             const groupName = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup))?.name || "כללי";
                                             
                                             console.log(`📡 [TRACE - clalit.js] שם קבוצה שזוהה: "${groupName}", קוד קבוצה בקונפיג: ${config.selectedGroup}`);
-                                            const report = createExecutionReport(stats, {
+                                           // 1. סנכרון כל מקורות הנתונים (DB, קונפיגורציה וזיכרון מיילים)
+                                           // עדכון אובייקט הסטטיסטיקה כדי שהדו"ח יציג את המידע הנכון
+                                            stats.lastFoundDoctor = bestAppt.doctor;
+                                            stats.lastFoundDate = bestAppt.dateStr;
+                                            stats.lastFoundCity = bestAppt.actualCity;
+
+                                            // שימוש בפונקציה הנכונה שקיימת ב-reportGenerator.js והיא דואגת לשמירה לקובץ
+                                            const { createFoundAppointmentReport } = require('../../utils/scheduler/reportGenerator');
+                                            
+                                            const report = createFoundAppointmentReport(stats, {
                                                 familyMember: config.familyMember || 'ראשי',
                                                 groupName: groupName,
                                                 specialization: config.selectedSpecialization || 'לא הוגדר',
                                                 city: bestAppt.actualCity,
                                                 doctor: bestAppt.doctor,
                                                 dateStr: bestAppt.dateStr,
-                                                searchStartTime: stats.startTime.toISOString()
+                                                searchStartTime: stats.startTime.toLocaleString('he-IL')
                                             });
-                                            console.log(report);
+                                            
+                                            console.log('📊 [REPORT-GENERATED] דוח ביצוע מעודכן נשמר בהצלחה.');
                                         } else {
                                             console.log(`   -> נמצא תור ל-${bestAppt.doctor}, אך הוא אינו מוקדם יותר מהתור השמור בזיכרון.`);
                                         }
