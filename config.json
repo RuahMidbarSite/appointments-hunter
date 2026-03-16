@@ -14,15 +14,18 @@
   "selectedSpecialization": "31",
   "insuranceType": "הכל",
   "endDate": "",
-  "runInLoop": false,
-  "loopFrequency": "0-5",
+  "runInLoop": true,
+  "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "17.03.2026 - ד\"ר סלם אברהם (הרצליה)",
+  "lastFoundDate": "30.04.2026 - ד\"ר שוורץ סילבינה (הרצליה)",
   "doctorDates": {
-    "ד\"ר סלם אברהם": "17.03.2026"
+    "ד\"ר סלם אברהם": "17.03.2026",
+    "ד\"ר דיאס-פולק דוד": "17.03.2026",
+    "ד\"ר שוורץ סילבינה": "30.04.2026"
   },
-  "nextRunTime": 1773681151045,
+  "nextRunTime": 1773685154749,
   "selectedDoctorNames": [],
-  "lastBestFound": "17.03.2026 - ד\"ר סלם אברהם (הרצליה)"
+  "lastBestFound": "17.03.2026 - ד\"ר סלם אברהם (הרצליה)",
+  "botStatus": "idle"
 }
