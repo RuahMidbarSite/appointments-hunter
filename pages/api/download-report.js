@@ -30,14 +30,24 @@ export default function handler(req, res) {
                 };
 
                 const city = extract('עיר');
-                const group = extract('תחום');
+                let group = extract('תחום');
+
+                // גיבוי לשורות שאין בהן את המילה "תחום" (שורות ישנות)
+                if (!group) {
+                    const docName = extract('רופא');
+                    if (docName) {
+                        if (docName.includes('דאבוש') || docName.includes('פינחסוב')) group = 'אורתופדיה';
+                        else if (docName.includes('שיף')) group = 'אורולוגיה';
+                        else if (docName.includes('אבו עצב')) group = 'ניירולוגיה';
+                    }
+                }
                 
                 if (city) citiesCount[city] = (citiesCount[city] || 0) + 1;
 
-                // --- תיקון: חילוץ שם התחום ---
-                // שורות ישנות בלוג לא מכילות "תחום:" כלל — נספור רק שורות שהשדה קיים בהן
                 if (group) {
                     groupCount[group] = (groupCount[group] || 0) + 1;
+                } else {
+                    groupCount['כללי/אחר'] = (groupCount['כללי/אחר'] || 0) + 1;
                 }
 
                 // --- תיקון: חילוץ שעה נכון ---

@@ -506,21 +506,58 @@ await page.waitForTimeout(300);
                         console.log(`   -> דילגתי: התאריך ${isoDate} מאוחר מתאריך היעד.`);
                         continue;
                     }
-                    const isPreferred = activeDoctorsFilter.length === 0 || activeDoctorsFilter.some(name => appt.docNameRaw.includes(name));
                     
+                    // הדפסת דיבוג: מה יש ברשימת המועדפים ומה מצאנו באתר
+                    console.log(`    [DEBUG] בודק רופא מהאתר: "${appt.docNameRaw}"`);
+                    console.log(`    [DEBUG] מועדפים מהדשבורד: ${JSON.stringify(activeDoctorsFilter)}`);
+
+                    let matchedDashboardName = appt.docNameRaw.trim(); // ברירת מחדל
+                    let isPreferred = activeDoctorsFilter.length === 0;
+
+                    if (activeDoctorsFilter.length > 0) {
+                        for (const prefName of activeDoctorsFilter) {
+                            const cleanPref = prefName.replace(/ד"ר|דר'|\(כללית\)|\(מושלם\)/g, '').replace(/[()]/g, '').trim();
+                            const prefWords = cleanPref.split(/\s+/).filter(word => word.length > 1);
+                            const cleanSiteName = appt.docNameRaw.replace(/ד"ר|דר'/g, '').trim();
+                            
+                            // פונקציית עזר שמתעלמת מהאותיות י' ו-ו' כדי לפתור הבדלי כתיב מלא/חסר
+                            const normalizeHeb = (str) => str.replace(/[יו]/g, '');
+                            
+                            // משווים כעת את הגרסאות "הנקיות" ללא אותיות אהו"י
+                            if (prefWords.every(word => normalizeHeb(cleanSiteName).includes(normalizeHeb(word)))) {
+                                isPreferred = true;
+                                // קסם: מעדכנים את השם לזה שמוגדר בדשבורד כדי שהמערכת תזהה אותו!
+                                matchedDashboardName = prefName; 
+                                break;
+                            }
+                        }
+                    }
+
                     if (!isPreferred) {
-                        console.log(`   -> דילגתי: הרופא אינו ברשימת המועדפים.`);
+                        console.log(`    -> דילגתי: הרופא אינו ברשימת המועדפים (לא נמצאה התאמה למילים).`);
                         continue;
                     }
 
-                    if (!config.includeSurrounding && appt.actualCity !== item && appt.actualCity !== 'עיר לא ידועה' && !appt.actualCity.includes('לא צויין')) {
-                        console.log(`   -> דילגתי: התור בעיר ${appt.actualCity} ולא ב-${item}, והצ'קבוקס כבוי.`);
+                    let finalCity = appt.actualCity;
+                    // פתרון באג הכפילות: מונע את זליגת שם הרופא לשדה של העיר
+                    if (isDoctorSearch && finalCity === item) {
+                        finalCity = (config.selectedCities && config.selectedCities.length > 0) ? config.selectedCities[0] : 'עיר לא צוינה';
+                    }
+
+                    if (!config.includeSurrounding && finalCity !== item && finalCity !== 'עיר לא ידועה' && !finalCity.includes('לא צויין') && !isDoctorSearch) {
+                        console.log(`   -> דילגתי: התור בעיר ${finalCity} ולא ב-${item}, והצ'קבוקס כבוי.`);
                         continue;
                     }
 
                     const cleanDate = match[0];
                     console.log(`   -> ✅ התור עבר את כל הסינונים וישלח למייל!`);
-                    foundInPage.push({ doctor: appt.docNameRaw.trim(), dateStr: cleanDate, actualCity: appt.actualCity });
+                    
+                    // מעביר לזיכרון את השם המדויק מהדשבורד ואת העיר הנקייה
+                    foundInPage.push({ 
+                        doctor: matchedDashboardName, 
+                        dateStr: cleanDate, 
+                        actualCity: finalCity 
+                    });
                 }
                 console.log("--- סוף הדפסת דיבוג ---\n");
 
@@ -550,12 +587,19 @@ await page.waitForTimeout(300);
                         
                       if (!sentInThisRun.has(key)) {
                                     try {
-                                        if (isBetterAppointment(bestAppt.doctor, bestAppt.dateStr)) {
-                                            
-                                            // 1. קודם כל שומרים לזיכרון המקומי (מקור אמת פנימי)
-                                            updateMemory(bestAppt.doctor, bestAppt.dateStr, bestAppt.actualCity);
+                                        // בדיקה: האם התור טוב יותר מהזיכרון הפנימי או שהבאנר הצהוב ריק?
+                                        const configCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                                        const isBannerEmpty = !configCheck.lastFoundDate;
+                                        const isBetter = isBetterAppointment(bestAppt.doctor, bestAppt.dateStr);
 
-                                          // 2. עדכון חכם ל-DB: רק אם התור החדש באמת מוקדם יותר ממה שמוצג כרגע בדשבורד
+                                        if (isBetter || isBannerEmpty) {
+                                            
+                                           // 1. חילוץ שם נקי ללא סוגריים לפני כל פעולת שמירה או לוג
+                                            const cleanDoctorName = bestAppt.doctor.split('(')[0].trim();
+
+                                            // 2. עדכון הזיכרון המקומי עם השם הנקי והעיר הנכונה
+                                            updateMemory(cleanDoctorName, bestAppt.dateStr, bestAppt.actualCity);
+
                                             try {
                                                 const mongoose = require('mongoose');
                                                 const SearchTemplate = require('../../models/SearchTemplate');
@@ -573,13 +617,15 @@ await page.waitForTimeout(300);
                                                 }
 
                                                 if (isSoFarBest) {
-                                                    const foundStr = `${bestAppt.dateStr} - ${bestAppt.doctor} (${bestAppt.actualCity})`;
+                                                    // 3. בניית מחרוזת תצוגה נקייה עבור הבאנר הצהוב בדשבורד
+                                                    const foundStr = `${bestAppt.dateStr} - ${cleanDoctorName} (${bestAppt.actualCity})`;
+                                                    
                                                     await SearchTemplate.updateOne(
                                                         { userId: config.userId, selectedGroup: config.selectedGroup },
                                                         { $set: { lastBestFound: foundStr } },
                                                         { upsert: true }
                                                     );
-                                                    console.log(`✅ [DB-UPDATING] נמצא תור קרוב יותר! מעדכן דשבורד ל: ${bestAppt.dateStr}`);
+                                                    console.log(`✅ [DB-UPDATING] נמצא תור! מעדכן דשבורד ל: ${foundStr}`);
                                                 }
                                             } catch (dbErr) {
                                                 console.error("❌ שגיאה בעדכון ה-DB:", dbErr.message);

@@ -299,21 +299,45 @@ const cityName = config.selectedCities.length > 0
 
         if (!confirm(confirmMessage)) return;
 
-        try {
+   try {
+            // יצירת עותק נקי של ההגדרות עבור מסד הנתונים בלבד
+            const cleanConfigForDB = { ...config };
+            delete cleanConfigForDB.lastFoundDate;
+            delete cleanConfigForDB.lastBestFound; // חיסול משתנה הרפאים של שם הרופאה
+            delete cleanConfigForDB.doctorDates;
+
+            // שליחה שקטה למסד הנתונים ללא הפעלת הבוט
             const res = await fetch('/api/save-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     action: 'save_template_to_db', 
                     data: { 
-                        ...config, 
+                        ...cleanConfigForDB, 
                         templateName: autoName,
                         saveDate: datePart,
                         saveTime: timePart
                     } 
                 })
             });
-            if (res.ok) alert("✅ התבנית נשמרה בהצלחה!");
+            
+            if (res.ok) {
+                alert("✅ התבנית נשמרה בהצלחה!");
+                
+                // 1. מעלים את הבאנר הצהוב ותאריכי הרופאים מהמסך באופן מיידי
+                setConfig(prev => ({ ...prev, lastFoundDate: '', doctorDates: {} }));
+                
+                // 2. מנקה את התור מהקובץ החי בשרת בשקט (בדיוק כמו כפתור ה-X) כדי שלא יחזור ברענון
+                await fetch('/api/save-config', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ 
+                        action: 'reset_last_found',
+                        userId: config.userId,
+                        selectedGroup: config.selectedGroup
+                    }) 
+                });
+            }
         } catch (err) {
             console.error("Save error:", err);
             alert("❌ שגיאה בשמירה ל-DB");
@@ -680,7 +704,7 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                 <img src="/clalit-logo.png" alt="כללית" className="h-8 object-contain" />
                             </div>
                             <div className="space-y-2">
-                                {/* תחום */}
+                               {/* תחום */}
                                 <div className="space-y-0.5">
                                     <label className="text-base font-bold text-gray-500 pr-1">תחום</label>
                                     <MultiSelectDropdown 
@@ -693,7 +717,8 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                                 ...config, 
                                                 selectedGroup: groupId, 
                                                 selectedSpecialization: String(firstSpec), 
-                                                selectedDoctors: []
+                                                selectedDoctors: [],
+                                                selectedDoctorNames: []
                                             });
                                         }} 
                                         placeholder="בחר תחום..." 
@@ -709,7 +734,7 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                     <MultiSelectDropdown 
                                         options={CLALIT_SPECIALIZATIONS[config.selectedGroup] ? Object.values(CLALIT_SPECIALIZATIONS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : []} 
                                         selected={config.selectedSpecialization ? [String(config.selectedSpecialization)] : []} 
-                                        onChange={(val) => setConfig({...config, selectedSpecialization: val[0], selectedDoctors: []})} 
+                                        onChange={(val) => setConfig({...config, selectedSpecialization: val[0], selectedDoctors: [], selectedDoctorNames: []})} 
                                         placeholder="בחר מקצוע..." 
                                         isObject 
                                         isMulti={false} 
