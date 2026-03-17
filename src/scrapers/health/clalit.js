@@ -1,6 +1,8 @@
 const { solveCaptcha } = require('../../services/captchaService');
 const nodemailer = require('nodemailer');
 const preferredDoctors = require('./constants/doctors_whitelist');
+const mongoose = require('mongoose'); //
+const SearchTemplate = require('../../models/SearchTemplate'); //
 const fs = require('fs');
 const path = require('path');
 const { setBotStatus, waitMinutes, isBetterAppointment, updateMemory } = require('../../utils/scheduler/loopManager');
@@ -147,6 +149,18 @@ async function sendEmailNotification(docName, city, dateStr, targetEmail) {
 
 async function runClalit(page) {
     setBotStatus('active');
+
+    // וידוא חיבור אקטיבי ל-DB בתחילת כל סבב למניעת Timeout
+    if (mongoose.connection.readyState !== 1) {
+        console.log("🔄 [DB-RECONNECT] מזהה חיבור לא פעיל, מתחבר כעת...");
+        try {
+            await mongoose.connect(process.env.MONGODB_URI);
+            console.log("✅ [DB-RECONNECT] החיבור חודש בהצלחה.");
+        } catch (err) {
+            console.error("❌ [DB-RECONNECT] נכשלה התחברות ל-DB:", err.message);
+        }
+    }
+
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
     
     // משתנה שישמור את התור המוקדם ביותר שנמצא *רק בסבב הנוכחי* לצורך שליחת מייל בסיום
@@ -311,11 +325,73 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                 await target.click('#ProfessionVisitButton');
                 await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
 
-                console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
+              console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
+                
+                // 1. בחירת תחום (Group)
                 await target.selectOption('#SelectedGroupCode', groupId);
                 await page.waitForTimeout(3000); 
-                await target.selectOption('#SelectedSpecializationCode', specId);
-                await page.waitForTimeout(1000);
+
+                // בדיקה ראשונה: האם הפופ-אפ קפץ כבר אחרי בחירת התחום?
+                const checkReferral = async (stepName) => {
+                    const isMissing = await target.evaluate(() => {
+                        const modal = document.querySelector('.modal-body, #divMessage, .messgeBox, .messgeBoxTitle');
+                        const popupText = document.body.innerText; 
+                        return (modal && modal.innerText.includes('נדרשת הפניה')) || 
+                               popupText.includes('נדרשת הפניה');
+                    });
+
+                    if (isMissing) {
+                        // חילוץ שם התחום הדינמי מתוך קובץ הקבוצות של כללית
+                        const { CLALIT_GROUPS } = require('./constants/professions');
+                        const groupName = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup))?.name || "המבוקש";
+                        
+                        const errorMsg = `⚠️ חסרה הפנייה בתחום ${groupName}`;
+                        console.log(`💡 [DETECTION-TEST] ${errorMsg} (בשלב: ${stepName})`);
+                        
+                        try {
+                            const formattedError = `<span id="referral-error" style="color: red; font-weight: bold; display: block; text-align: right;">${errorMsg}</span>`;
+                            
+                            // 1. עדכון מקומי מהיר
+                            const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                            currentConfig.lastFoundDate = formattedError;
+                            currentConfig.lastBestFound = formattedError; 
+                            fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+                            console.log('✅ [DASHBOARD-SYNC] הודעת השגיאה נכתבה בהצלחה לקובץ.');
+
+                            // 2. עדכון DB - עם upsert חכם שמונע את שגיאת הכפילות
+                            if (mongoose.connection.readyState === 1) {
+                                await SearchTemplate.updateOne(
+                                    { userId: config.userId, selectedGroup: config.selectedGroup },
+                                    { 
+                                        $set: { lastBestFound: formattedError },
+                                        $setOnInsert: { templateName: `התראת חסימה - ${Date.now()}` }
+                                    },
+                                    { upsert: true }
+                                ).catch((dbErr) => console.log('⚠️ [DB-WARN] שגיאה בשמירת התראת הפניה:', dbErr.message));
+                            }
+
+                            console.log('🛑 [STOP-SEARCH] חסרה הפניה. עוצר סריקה לסבב זה.');
+                            return true; // עוצר את הלולאה
+                        } catch (err) {
+                            console.error("Error in detection handler:", err.message); 
+                        }
+                    }
+                    return isMissing;
+                };
+
+             // בדיקה לאחר בחירת תחום - אם חסרה הפניה, עוצרים את כל הריצה
+                if (await checkReferral("בחירת תחום")) return; 
+
+                // 2. בחירת מקצוע (Specialization)
+                try {
+                    await target.selectOption('#SelectedSpecializationCode', specId);
+                    await page.waitForTimeout(2000);
+                    // בדיקה לאחר בחירת מקצוע - אם חסרה הפניה, עוצרים את הריצה
+                    if (await checkReferral("בחירת מקצוע")) return;
+                } catch (e) {
+                    console.log("⚠️ לא ניתן היה לבחור מקצוע - ייתכן והפופ-אפ חוסם את האלמנט.");
+                    return; // עצירה כדי למנוע ניסיונות לחיצה חסומים בשלבים הבאים
+                }
             } else {
                 console.log("❌ לא נמצא כפתור 'ProfessionVisitButton', מנסה להמשיך...");
                 target = page; // fallback למניעת קריסה
@@ -748,10 +824,11 @@ if (currentInDB && currentInDB.lastBestFound) {
                 console.log(`ℹ️ הסבב הסתיים. נמצאו תורים, אך אף אחד מהם לא מקדים את התור שכבר מופיע בדשבורד (${lastDBDateStr}). לא נשלח מייל.`);
             }
         }
-    } catch (e) {
+   } catch (e) {
         console.error("❌ שגיאה במהלך הבוט:", e.message);
         const currentUrl = page.url();
-        if (currentUrl.includes('ResponseSorry') || error.message.includes('Timeout')) {
+        // תיקון: שימוש ב-e במקום error
+        if (currentUrl.includes('ResponseSorry') || e.message.includes('Timeout')) {
             console.log('🔄 זוהתה שגיאת סשן – מנקה עוגיות ומתחיל סבב חדש מיד...');
             try {
                 await page.context().clearCookies();

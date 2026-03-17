@@ -530,15 +530,34 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                     >
                                         ✕
                                     </button>
-                                    <div className="flex items-center gap-2 border-b border-amber-200 mb-1 pb-0.5">
-                                        <span className="text-xs font-black text-amber-800 uppercase opacity-75 whitespace-nowrap">התור המוקדם ביותר:</span>
-                                        <span className="text-lg font-black text-amber-900 leading-none">
-                                            {config.lastFoundDate.split('-')[0].trim()}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm font-bold text-amber-800 truncate leading-tight">
-                                        {config.lastFoundDate.split('-').slice(1).join('-').trim()}
-                                    </p>
+                                   {/* בדיקה גמישה יותר - האם יש HTML או שמדובר בשגיאת הפניה */}
+{(config.lastFoundDate && (config.lastFoundDate.includes('<span') || config.lastFoundDate.includes('חסרה הפניה'))) ? (
+                                        <div 
+                                            className="text-lg font-black leading-tight py-1 text-right"
+                                            dangerouslySetInnerHTML={{ __html: config.lastFoundDate }}
+                                        />
+                                    ) : (
+                                        <>
+                                            {config.lastFoundDate.includes('<span') ? (
+                                        <div 
+                                            className="text-lg font-black leading-tight py-1 text-right"
+                                            dangerouslySetInnerHTML={{ __html: config.lastFoundDate }}
+                                        />
+                                    ) : (
+                                        <>
+                                            <div className="flex items-center gap-2 border-b border-amber-200 mb-1 pb-0.5">
+                                                <span className="text-xs font-black text-amber-800 uppercase opacity-75 whitespace-nowrap">התור המוקדם ביותר:</span>
+                                                <span className="text-lg font-black text-amber-900 leading-none">
+                                                    {config.lastFoundDate.split('-')[0].trim()}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm font-bold text-amber-800 truncate leading-tight text-right">
+                                                {config.lastFoundDate.split('-').slice(1).join('-').trim()}
+                                            </p>
+                                        </>
+                                    )}
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>
