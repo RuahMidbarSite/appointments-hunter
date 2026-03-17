@@ -334,10 +334,19 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                 // בדיקה ראשונה: האם הפופ-אפ קפץ כבר אחרי בחירת התחום?
                 const checkReferral = async (stepName) => {
                     const isMissing = await target.evaluate(() => {
-                        const modal = document.querySelector('.modal-body, #divMessage, .messgeBox, .messgeBoxTitle');
-                        const popupText = document.body.innerText; 
-                        return (modal && modal.innerText.includes('נדרשת הפניה')) || 
-                               popupText.includes('נדרשת הפניה');
+                        // אוספים את כל האלמנטים שיכולים להיות פופ-אפ (כולל messageView של כללית)
+                        const activeModals = Array.from(document.querySelectorAll('#messageView, .ui-dialog, .modal-dialog, #divMessage, .messgeBox'));
+                        
+                        for (const modal of activeModals) {
+                            // מוודאים שהפופ-אפ אכן מוצג על המסך ולא מוסתר בקוד
+                            const isVisible = modal.offsetParent !== null && window.getComputedStyle(modal).display !== 'none';
+                            if (isVisible) {
+                                if (modal.innerText && modal.innerText.includes('נדרשת הפניה')) {
+                                    return true; // עוצר רק אם החלון *הפעיל* מכיל את הטקסט
+                                }
+                            }
+                        }
+                        return false;
                     });
 
                     if (isMissing) {

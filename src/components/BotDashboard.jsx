@@ -353,11 +353,13 @@ const cityName = config.selectedCities.length > 0
             if (res.ok) {
                 alert("✅ התבנית נשמרה בהצלחה!");
                 
-                // 1. מעלים את הבאנר הצהוב ותאריכי הרופאים מהמסך באופן מיידי
-                setConfig(prev => ({ ...prev, lastFoundDate: '', doctorDates: {} }));
+                // 1. מסמנים שהתבנית פעילה, ומעלים את הבאנר הצהוב ותאריכי הרופאים מהמסך
+                const updatedConfig = { ...config, lastFoundDate: '', doctorDates: {}, isTemplateActive: true };
+                setConfig(updatedConfig);
+                handleAutoSave(updatedConfig); // שומרים את הסטטוס הפעיל גם לקובץ
                 
                 // 2. מנקה את התור מהקובץ החי בשרת בשקט (בדיוק כמו כפתור ה-X) כדי שלא יחזור ברענון
-                await fetch('/api/save-config', { 
+                await fetch('/api/save-config', {
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' }, 
                     body: JSON.stringify({ 
@@ -414,6 +416,12 @@ const cityName = config.selectedCities.length > 0
     };
 
     const handleRun = async (isSingle = false) => {
+        // חסימת הפעלה אם לא נטענה או נשמרה תבנית מסודרת
+        if (!config.isTemplateActive) {
+            alert("⚠️ עצור! יש לטעון תבנית מתוך הרשימה או לשמור את הנתונים כתבנית חדשה (שמור ל-DB) לפני ההפעלה.");
+            return;
+        }
+
         // איפוס nextRunTime כדי למנוע הופעת טיימר מהסבב הקודם מיד עם הלחיצה
         const updated = { ...config, runInLoop: !isSingle, nextRunTime: null };
         
@@ -504,10 +512,13 @@ const cityName = config.selectedCities.length > 0
     };
 
 const [showPassword, setShowPassword] = useState(false);
-const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveStatus === 'active' && config.runInLoop;
+const isSmsMode = config.loginMode === 'sms';    
+    const isLoopActive   = botLiveStatus === 'active' && config.runInLoop;
     const isSingleActive = botLiveStatus === 'active' && !config.runInLoop;
     const isWaiting      = botLiveStatus === 'idle' && timeLeft !== null && timeLeft > 0;
-
+    
+    // בדיקה האם נטענה תבנית מה-DB או נשמרה תבנית חדשה
+    const isReadyToRun = Boolean(config.isTemplateActive);
     return (
         <div className="h-screen bg-gray-50 flex flex-col overflow-hidden font-sans">
             <main className="flex-1 flex flex-col overflow-hidden bg-[#f8fbfa]">
@@ -684,8 +695,8 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                                             cleanData.lastFoundDate = ''; 
                                                         }
                                                         
-                                                        // 2. מעדכנים את הסטייט המקומי
-                                                        const updatedConfig = { ...config, ...cleanData };
+                                                        // 2. מעדכנים את הסטייט המקומי (ומסמנים שהתבנית פעילה)
+                                                        const updatedConfig = { ...config, ...cleanData, isTemplateActive: true };
                                                         setConfig(updatedConfig); 
                                                         
                                                         // 3. קריטי: שומרים מיד לשרת 
@@ -733,12 +744,34 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                     </div>
                                 )}
                             </div>
-                            <button 
-                                onClick={saveToDB}
-                                className="w-full bg-[#00a896] text-white py-1.5 rounded-xl font-black text-lg hover:bg-[#008f80] transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
-                            >
-                                💾 שמור ל-DB
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        if(confirm("לנקות את כל השדות ולנעול את החיפוש?")) {
+                                            const clearedConfig = {
+                                                userId: '', userCode: '', password: '', familyMember: '', email: '',
+                                                loginMode: 'password', selectedCities: [], includeSurrounding: true,
+                                                selectedDoctors: [], selectedGroup: '', selectedSpecialization: '',
+                                                insuranceType: 'הכל', endDate: '', runInLoop: false, loopFrequency: "10-15",
+                                                startTime: '08:00', endTime: '22:00', lastFoundDate: '', doctorDates: {},
+                                                isTemplateActive: false // איפוס סטטוס התבנית נועל את הכפתורים
+                                            };
+                                            setConfig(clearedConfig);
+                                            handleAutoSave(clearedConfig);
+                                        }
+                                    }}
+                                    className="w-1/3 bg-gray-200 text-gray-600 py-1.5 rounded-xl font-black text-lg hover:bg-gray-300 transition-all shadow-sm active:scale-95"
+                                    title="נקה טופס"
+                                >
+                                    🧹 נקה
+                                </button>
+                                <button 
+                                    onClick={saveToDB}
+                                    className="w-2/3 bg-[#00a896] text-white py-1.5 rounded-xl font-black text-lg hover:bg-[#008f80] transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                                >
+                                    💾 שמור ל-DB
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -904,13 +937,16 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                             {/* כפתור לולאה */}
                             <button
                                 onClick={() => handleRun(false)}
-                                disabled={isSingleActive}
+                                disabled={isSingleActive || !isReadyToRun}
+                                title={!isReadyToRun ? "יש לטעון תבנית מהרשימה או ללחוץ על 'שמור ל-DB'" : ""}
                                 className={`py-2.5 text-white font-black text-xl rounded-2xl transition-all duration-150
-                                    ${isLoopActive
-                                        ? 'bg-[#007060] shadow-inner ring-2 ring-inset ring-[#005a4c] translate-y-0.5 cursor-default'
-                                        : isSingleActive
-                                            ? 'bg-[#00a896] opacity-30 grayscale cursor-not-allowed shadow-lg'
-                                            : 'bg-[#00a896] hover:bg-[#008f80] shadow-lg active:translate-y-0.5 active:shadow-inner active:bg-[#007060] cursor-pointer'}`}
+                                    ${!isReadyToRun 
+                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
+                                        : isLoopActive
+                                            ? 'bg-[#007060] shadow-inner ring-2 ring-inset ring-[#005a4c] translate-y-0.5 cursor-default'
+                                            : isSingleActive
+                                                ? 'bg-[#00a896] opacity-30 grayscale cursor-not-allowed shadow-lg'
+                                                : 'bg-[#00a896] hover:bg-[#008f80] shadow-lg active:translate-y-0.5 active:shadow-inner active:bg-[#007060] cursor-pointer'}`}
                             >
                                 {isLoopActive ? '🔄 רץ בלולאה' : 'לולאה'}
                             </button>
@@ -918,13 +954,16 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                             {/* כפתור בדיקה */}
                             <button
                                 onClick={() => handleRun(true)}
-                                disabled={isLoopActive}
+                                disabled={isLoopActive || !isReadyToRun}
+                                title={!isReadyToRun ? "יש לטעון תבנית מהרשימה או ללחוץ על 'שמור ל-DB'" : ""}
                                 className={`py-2.5 text-white font-black text-xl rounded-2xl transition-all duration-150
-                                    ${isSingleActive
-                                        ? 'bg-[#004f80] shadow-inner ring-2 ring-inset ring-[#003d63] translate-y-0.5 cursor-default'
-                                        : isLoopActive
-                                            ? 'bg-[#007cc3] opacity-30 grayscale cursor-not-allowed shadow-lg'
-                                            : 'bg-[#007cc3] hover:bg-[#0066a1] shadow-lg active:translate-y-0.5 active:shadow-inner active:bg-[#004f80] cursor-pointer'}`}
+                                    ${!isReadyToRun 
+                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
+                                        : isSingleActive
+                                            ? 'bg-[#004f80] shadow-inner ring-2 ring-inset ring-[#003d63] translate-y-0.5 cursor-default'
+                                            : isLoopActive
+                                                ? 'bg-[#007cc3] opacity-30 grayscale cursor-not-allowed shadow-lg'
+                                                : 'bg-[#007cc3] hover:bg-[#0066a1] shadow-lg active:translate-y-0.5 active:shadow-inner active:bg-[#004f80] cursor-pointer'}`}
                             >
                                 {isSingleActive ? '🔍 בודק...' : 'בדיקה'}
                             </button>
@@ -938,12 +977,12 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                             </button>
 
                             <a 
-    href="/api/download-report" 
-    target="_blank" 
-    className="col-span-2 py-3 bg-gradient-to-r from-teal-700 to-teal-900 hover:from-teal-600 hover:to-teal-800 text-white font-black text-xl rounded-3xl text-center flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95"
->
-    📊 הורד מצגת דוח PDF
-</a>
+                                href="/api/download-report" 
+                                target="_blank" 
+                                className="col-span-2 py-3 bg-gradient-to-r from-teal-700 to-teal-900 hover:from-teal-600 hover:to-teal-800 text-white font-black text-xl rounded-3xl text-center flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95"
+                            >
+                                📊 הורד מצגת דוח PDF
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -966,20 +1005,23 @@ const isSmsMode = config.loginMode === 'sms';    const isLoopActive   = botLiveS
                                     }
                                     if (!docObj) return null;
                                     const parts = docObj.label.split('|').map(p => p.trim());
-const name = parts[0];
-const city = parts[1]; // חילוץ העיר מהחלק השני של ה-label
-return (
-    <div key={docId} className="bg-white p-4 rounded-[2rem] border-2 border-gray-100 shadow-xl relative hover:border-teal-400 transition-all flex flex-col justify-between min-h-[140px]">
-        <button onClick={() => handleDoctorsChange(config.selectedDoctors.filter(id => id !== docId))} className="absolute top-4 left-4 text-gray-300 hover:text-red-500 text-xl font-black">✕</button>
-        <div>
-            <div className="font-black text-2xl text-gray-800 mb-2 leading-tight border-r-4 border-blue-500 pr-3">
-                {name} <span className="text-gray-400 text-lg font-bold">({city})</span>
-            </div>
+                                    const name = parts[0];
+                                    const city = parts[1]; // חילוץ העיר מהחלק השני של ה-label
+                                    
+                                    return (
+                                        <div key={docId} className="bg-white p-4 rounded-[2rem] border-2 border-gray-100 shadow-xl relative hover:border-teal-400 transition-all flex flex-col justify-between min-h-[140px]">
+                                            <button onClick={() => handleDoctorsChange(config.selectedDoctors.filter(id => id !== docId))} className="absolute top-4 left-4 text-gray-300 hover:text-red-500 text-xl font-black">✕</button>
+                                            
+                                            <div>
+                                                <div className="font-black text-2xl text-gray-800 mb-2 leading-tight border-r-4 border-blue-500 pr-3">
+                                                    {name} <span className="text-gray-400 text-lg font-bold">({city})</span>
+                                                </div>
                                                 <div className="text-base text-gray-500 font-bold leading-tight space-y-1">
                                                     <div className="truncate"><span className="text-[#007cc3]">מרפאה:</span> {parts[2]}</div>
                                                     <div className="truncate"><span className="text-[#007cc3]">כתובת:</span> {parts[3]}</div>
                                                 </div>
                                             </div>
+                                            
                                             <div className="mt-3 pt-3 border-t-4 border-gray-50 flex items-center justify-between">
                                                 <span className="text-xl font-black text-[#005a4c]">תור קרוב:</span>
                                                 <span className="text-2xl font-black text-amber-700 bg-[#fff9e6] px-6 py-2 rounded-2xl border-2 border-[#fcefc7] shadow-sm">

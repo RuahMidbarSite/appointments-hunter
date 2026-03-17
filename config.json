@@ -2,7 +2,7 @@
   "userId": "029280484",
   "userCode": "WL13044",
   "password": "Ruah816#",
-  "familyMember": "עמרי",
+  "familyMember": "אניגמה דיי",
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "password",
   "selectedCities": [
@@ -10,18 +10,20 @@
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "58",
-  "selectedSpecialization": "58",
+  "selectedGroup": "14",
+  "selectedSpecialization": "14",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
   "loopFrequency": "0-5",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "<span id=\"referral-error\" style=\"color: red; font-weight: bold; display: block; text-align: right;\">⚠️ חסרה הפנייה בתחום אורתופדיה</span>",
-  "doctorDates": {},
+  "lastFoundDate": "<span id=\"referral-error\" style=\"color: red; font-weight: bold; display: block; text-align: right;\">⚠️ חסרה הפנייה בתחום גריאטריה</span>",
+  "doctorDates": {
+    "error\" style=\"color: red; font": "<span id=\"referral"
+  },
+  "isTemplateActive": true,
   "nextRunTime": null,
   "selectedDoctorNames": [],
-  "lastBestFound": "<span id=\"referral-error\" style=\"color: red; font-weight: bold; display: block; text-align: right;\">⚠️ חסרה הפנייה בתחום אורתופדיה</span>",
-  "botStatus": "idle"
+  "lastBestFound": "<span id=\"referral-error\" style=\"color: red; font-weight: bold; display: block; text-align: right;\">⚠️ חסרה הפנייה בתחום גריאטריה</span>"
 }
