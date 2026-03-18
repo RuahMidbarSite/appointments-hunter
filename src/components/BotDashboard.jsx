@@ -226,7 +226,8 @@ export default function BotDashboard() {
                 if (response.ok) {
                     const data = await response.json();
                     if (!hasLoadedInitialConfig.current) {
-                        setConfig(prev => ({ ...prev, ...data }));
+                        // טוען את הנתונים מהשרת, אך מכריח את סטטוס התבנית להיות כבוי בטעינה ראשונה
+                        setConfig(prev => ({ ...prev, ...data, isTemplateActive: false }));
                         hasLoadedInitialConfig.current = true;
                     } else {
                         setConfig(prev => ({ 
@@ -457,6 +458,12 @@ const cityName = config.selectedCities.length > 0
             });
             if (res.ok) {
                 setDbSearchResults(prev => prev.filter(t => t._id !== id));
+                
+                // עדכון מיידי: אם מחקנו את התבנית שטעונה כרגע - נועלים את הכפתורים
+                setConfig(prev => ({
+                    ...prev,
+                    isTemplateActive: false
+                }));
             }
         } catch (err) {
             console.error("Delete error:", err);
@@ -749,13 +756,13 @@ const isSmsMode = config.loginMode === 'sms';
                                     onClick={() => {
                                         if(confirm("לנקות את כל השדות ולנעול את החיפוש?")) {
                                             const clearedConfig = {
-                                                userId: '', userCode: '', password: '', familyMember: '', email: '',
-                                                loginMode: 'password', selectedCities: [], includeSurrounding: true,
-                                                selectedDoctors: [], selectedGroup: '', selectedSpecialization: '',
-                                                insuranceType: 'הכל', endDate: '', runInLoop: false, loopFrequency: "10-15",
-                                                startTime: '08:00', endTime: '22:00', lastFoundDate: '', doctorDates: {},
-                                                isTemplateActive: false // איפוס סטטוס התבנית נועל את הכפתורים
-                                            };
+                                            userId: '', userCode: '', password: '', familyMember: '', email: '',
+                                            loginMode: 'password', selectedCities: [], includeSurrounding: true,
+                                            selectedDoctors: [], selectedGroup: '', selectedSpecialization: '',
+                                            insuranceType: 'הכל', endDate: '', runInLoop: false, loopFrequency: "10-15",
+                                            startTime: '08:00', endTime: '22:00', lastFoundDate: '', doctorDates: {},
+                                            isTemplateActive: false // איפוס סטטוס התבנית נועל את הכפתורים
+                                        };
                                             setConfig(clearedConfig);
                                             handleAutoSave(clearedConfig);
                                         }
@@ -934,7 +941,7 @@ const isSmsMode = config.loginMode === 'sms';
                         </section>
                         
                         <div className="grid grid-cols-2 gap-2 mt-1">
-                            {/* כפתור לולאה */}
+                          {/* כפתור לולאה */}
                             <button
                                 onClick={() => handleRun(false)}
                                 disabled={isSingleActive || !isReadyToRun}
