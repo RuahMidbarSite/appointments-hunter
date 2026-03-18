@@ -602,10 +602,17 @@ const isSmsMode = config.loginMode === 'sms';
                             </div>
 
                             <div className="space-y-1.5">
-                                {/* תעודת זהות – תמיד מוצג */}
+                               {/* ת"ז של בעל החשבון הראשי */}
                                 <div className="flex items-center gap-2">
-                                    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">תעודת זהות</label>
-                                    <input type="text" name="userId" value={config.userId} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">ת"ז (ראשי)</label>
+                                    <input 
+                                        type="text" 
+                                        name="userId" 
+                                        value={config.userId} 
+                                        onChange={handleChange} 
+                                        placeholder='ת"ז של בעל המנוי'
+                                        className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" 
+                                    />
                                 </div>
 
                                 {/* שדות סיסמה – מוצגים רק במצב password */}
@@ -617,12 +624,13 @@ const isSmsMode = config.loginMode === 'sms';
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">סיסמה</label>
-<div className="flex-1 relative">
-    <input type={showPassword ? "text" : "password"} name="password" value={config.password} onChange={handleChange} className="w-full px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white pr-3 pl-8" />
-    <button type="button" onClick={() => setShowPassword(p => !p)} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">
-        {showPassword ? "🙈" : "👁️"}
-    </button>
-</div>                                        </div>
+                                            <div className="flex-1 relative">
+                                                <input type={showPassword ? "text" : "password"} name="password" value={config.password} onChange={handleChange} className="w-full px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white pr-3 pl-8" />
+                                                <button type="button" onClick={() => setShowPassword(p => !p)} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">
+                                                    {showPassword ? "🙈" : "👁️"}
+                                                </button>
+                                            </div>                                        
+                                        </div>
                                     </>
                                 )}
 
@@ -634,10 +642,17 @@ const isSmsMode = config.loginMode === 'sms';
                                     </div>
                                 )}
 
-                                {/* שם בן משפחה – תמיד מוצג */}
+                                {/* שם פרטי למעבר תיק (למשל עבור ילדים/בן זוג) */}
                                 <div className="flex items-center gap-2">
-                                    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">שם</label>
-                                    <input type="text" name="familyMember" value={config.familyMember} onChange={handleChange} className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" />
+                                    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">שם פרטי</label>
+                                    <input 
+                                        type="text" 
+                                        name="familyMember" 
+                                        value={config.familyMember} 
+                                        onChange={handleChange} 
+                                        placeholder='למעבר תיק (למשל: נועה)'
+                                        className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" 
+                                    />
                                 </div>
                           {/* שדה אימייל */}
                                 <div className="flex items-center gap-2 mt-1.5">
