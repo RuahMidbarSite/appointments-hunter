@@ -186,9 +186,21 @@
         activeEngines: ['clalit_specialist'] // הגדרת מנוע ברירת מחדל
         });
 
-        const [botLiveStatus, setBotLiveStatus] = useState('idle');
-    const [timeLeft, setTimeLeft] = useState(null);
-    const [liveProgressMsg, setLiveProgressMsg] = useState(''); // הסטייט החדש
+   const [botLiveStatus, setBotLiveStatus] = useState('idle');
+    const [liveProgressMsg, setLiveProgressMsg] = useState(''); // חיווי הטקסט שחזר
+    const [timeLeft, setTimeLeft] = useState(null);            // הטיימר הסגול (סבב הבא) - חזר למקומו
+    const [scanTimeRemaining, setScanTimeRemaining] = useState(null); // הטיימר הטורקיז (סריקה) - חדש
+
+    // טיימר ספירה לאחור לסיום הסריקה (טורקיז) - רץ בנפרד מהטיימר הסגול
+    useEffect(() => {
+        let timer;
+        if (botLiveStatus === 'active' && scanTimeRemaining > 0) {
+            timer = setInterval(() => {
+                setScanTimeRemaining(prev => (prev > 0 ? prev - 1 : 0));
+            }, 1000);
+        }
+        return () => clearInterval(timer);
+    }, [botLiveStatus, scanTimeRemaining]);
         const hasLoadedInitialConfig = useRef(false);
         useEffect(() => {
             let timer;
@@ -241,6 +253,10 @@
                     }
                     setBotLiveStatus(data.botStatus || 'idle');
                     setLiveProgressMsg(data.liveProgress || ''); // משיכת ההודעה מהשרת
+                    // עדכון טיימר הסריקה מתוך הנתונים שהגיעו מהשרת
+                    if (data.scanTimeRemaining !== undefined) {
+                        setScanTimeRemaining(data.scanTimeRemaining);
+                    }
                     }
                 } catch (error) { console.error("Sync error:", error); }
             };
@@ -967,7 +983,25 @@
                                 <div className={`w-8 h-8 border-4 border-teal-200 border-t-teal-600 rounded-full shrink-0 ${botLiveStatus === 'active' && !liveProgressMsg.includes('הסתיימה') ? 'animate-spin' : ''}`}></div>
                                 <div className="flex-1">
                                     <p className="text-sm font-bold text-gray-500 mb-0.5">סטטוס סריקה:</p>
-                                    <p className="text-lg font-black text-teal-800 leading-tight">{liveProgressMsg}</p>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex-1">
+                                            <p className="text-xl font-black text-teal-900 leading-tight">{liveProgressMsg}</p>
+                                        </div>
+                                        
+                                        {/* טיימר סריקה אלגנטי ומעוצב */}
+                                        {botLiveStatus === 'active' && scanTimeRemaining > 0 && (
+                                            <div className="flex flex-col items-end shrink-0">
+                                                <div className="bg-teal-800 text-white px-4 py-1 rounded-full font-black text-xl shadow-md flex items-center gap-2 min-w-[90px] justify-center">
+                                                    <span className="text-base animate-pulse">⏱️</span>
+                                                    {formatTime(scanTimeRemaining)}
+                                                </div>
+                                                {/* חיווי הערכה קטן רק כשמדובר בזמן ראשוני */}
+                                                {liveProgressMsg && liveProgressMsg.includes('*') && (
+                                                    <span className="text-[10px] text-teal-600 font-bold opacity-70 mt-1">זמן משוער</span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                     {/* הערה המופיעה רק כשהבוט משתמש בזמן ברירת מחדל אופטימי */}
                                     {liveProgressMsg && liveProgressMsg.includes('*') && (
                                         <p className="text-[11px] text-gray-400 mt-1 font-bold animate-pulse text-right">* מבוסס על הערכת זמן ראשונית</p>

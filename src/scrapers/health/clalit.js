@@ -10,12 +10,14 @@ const { createExecutionReport } = require('../../utils/scheduler/reportGenerator
 const { navigateHospitalSearch } = require('./hospital_navigator'); // הייבוא החדש
 
 // פונקציה לעדכון סטטוס חי לדשבורד
-function updateLiveProgress(msg) {
+function updateLiveProgress(msg, seconds = null) {
     try {
         const configPath = './config.json';
         if (fs.existsSync(configPath)) {
             const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
             cfg.liveProgress = msg;
+            // שמירת השניות הגולמיות כדי שהדשבורד יוכל להריץ טיימר חי
+            cfg.scanTimeRemaining = seconds;
             fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
         }
     } catch (e) {}
@@ -174,7 +176,14 @@ async function runClalit(page) {
     }
 
     const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-    
+    // --- הכנת מנגנון הלמידה עבור התחברות וסריקה ---
+    const learningPath = path.join(__dirname, '../../utils/bot_learning_data.json');
+    let scanHistory = {};
+    try { 
+        if (fs.existsSync(learningPath)) {
+            scanHistory = JSON.parse(fs.readFileSync(learningPath, 'utf8')); 
+        }
+    } catch(e) { console.log("⚠️ שגיאה בקריאת קובץ הלמידה"); }
     // משתנה שישמור את התור המוקדם ביותר שנמצא *רק בסבב הנוכחי* לצורך שליחת מייל בסיום
     let bestApptForEmailThisRun = null;
     const stats = { startTime: new Date() };
@@ -217,7 +226,16 @@ async function runClalit(page) {
             const loginMode = config.loginMode || 'password';
             console.log(`🔑 נדרש לוגין – מצב: ${loginMode === 'sms' ? 'קוד חד-פעמי SMS' : 'קוד משתמש וסיסמה'}`);
 
-            updateLiveProgress("🔐 מתחבר למערכת כללית...");
+            // הגדרת מפתח היסטורי לפי שיטת ההתחברות
+            const loginKey = `login_method_${loginMode}`;
+            const loginStartTime = Date.now();
+            
+            // שליפת זמן מההיסטוריה או שימוש בברירת מחדל (SMS: 60s, סיסמה: 20s)
+            const defaultLoginTime = loginMode === 'sms' ? 60 : 20;
+            const estimatedLoginTime = scanHistory[loginKey] || defaultLoginTime;
+            const isDefaultLogin = !scanHistory[loginKey];
+
+            updateLiveProgress(`🔐 מתחבר בשיטת ${loginMode === 'sms' ? 'SMS' : 'סיסמה'} ${isDefaultLogin ? '*' : ''}`, estimatedLoginTime);
             if (loginMode === 'sms') {
                 // --- התחברות עם SMS ---
                 const smsSent = await loginWithSMS(page, config);
@@ -273,7 +291,24 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
     console.log("--------------------------------------------------");
         console.log("ממתין לסיום תהליך ההתחברות...");
         await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
+        // מדידת זמן התחברות ועדכון קובץ הלמידה
+        if (typeof loginStartTime !== 'undefined') {
+            const loginDuration = Math.floor((Date.now() - loginStartTime) / 1000);
+            const currentLoginKey = `login_method_${config.loginMode || 'password'}`;
+            
+            if (scanHistory[currentLoginKey]) {
+                scanHistory[currentLoginKey] = Math.floor((scanHistory[currentLoginKey] + loginDuration) / 2);
+            } else {
+                scanHistory[currentLoginKey] = loginDuration;
+            }
+            try {
+                fs.writeFileSync(learningPath, JSON.stringify(scanHistory, null, 2));
+            } catch (err) {}
+        }
+
         updateLiveProgress("✅ תהליך הכניסה למערכת הושלם בהצלחה!");
+        await page.waitForTimeout(3000); // השהיה כדי שהמשתמש יספיק לראות את הודעת ההצלחה
+        updateLiveProgress("🏗️ נערך לחיפוש של התחומים בערים שהזנת...");
 
         // 1. התיקון לפופאפ (לחיצה אגרסיבית עוקפת שכבות)
         await page.evaluate(() => {
@@ -316,6 +351,7 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
 // מעבר לתיק בן משפחה (משותף לשני המסלולים)
             if (config.familyMember && config.familyMember.trim() !== '') {
                 console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
+                updateLiveProgress(`👨‍👩‍👧 עובר לתיק של ${config.familyMember.trim()}...`);
                 try {
                     const memberText = config.familyMember.trim();
                     await page.waitForSelector(`text="${memberText}"`, { state: 'visible', timeout: 15000 });
@@ -453,15 +489,6 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
             ? config.selectedDoctorNames
             : [];
 
-       // --- מנגנון הערכת זמן מבוסס למידה ---
-       const learningPath = path.join(__dirname, '../../utils/bot_learning_data.json');
-       let scanHistory = {};
-       try { 
-           if (fs.existsSync(learningPath)) {
-               scanHistory = JSON.parse(fs.readFileSync(learningPath, 'utf8')); 
-           }
-       } catch(e) { console.log("⚠️ שגיאה בקריאת קובץ הלמידה ב-utils"); }
-
        const getSearchKey = (item) => `${config.selectedGroup}_${config.selectedSpecialization}_${item}`;
        const DEFAULT_TIME_PER_ITEM = 45; // שניות כברירת מחדל
 
@@ -492,8 +519,8 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
             const timeStr = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
             const estimationMsg = isDefault ? `(זמן משוער: ${timeStr}*)` : `(זמן נותר: ${timeStr})`;
 
-            // חשוב: השורה הזו היא שמעדכנת את המסך שלך בזמן אמת
-            updateLiveProgress(`🔎 סורק: ${item} ${estimationMsg} [${currentIndex}/${totalItems}]`);
+       // חיווי אחיד הכולל את מספר העמוד (1) כבר בתחילת הסריקה של היעד
+            updateLiveProgress(`📄 עמוד 1 | ${item} (${currentIndex} מתוך ${totalItems} ${itemType})`, remainingSeconds);
             // בדיקה האם המשתמש לחץ על 'עצור' בדשבורד לפני שעוברים לעיר/רופא הבא
             const stopCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
             // עוצר רק אם המשתמש לחץ "עצור" (גם הלולאה כבויה וגם הסטטוס במנוחה)
@@ -596,7 +623,8 @@ await page.waitForTimeout(300);
             let pageNum = 1;
 
             while (hasNextPage) {
-                updateLiveProgress(`📄 סורק עמוד ${pageNum} עבור ${item} (${currentIndex} מתוך ${totalItems} ${itemType})...`);
+            // חיווי ברור המציג את העמוד הנוכחי ואת התקדמות יעדי הסריקה ללא כפילות זמן
+                updateLiveProgress(`📄 עמוד ${pageNum} | ${item} (${currentIndex} מתוך ${totalItems} ${itemType})`, remainingSeconds);
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} עבור ${item}...`);
               //  await page.screenshot({ path: `debug_${item}_page_${pageNum}.png` });
                 console.log(`📸 שמרתי צילום מסך בתיקייה הראשית: debug_${item}_page_${pageNum}.png`);
@@ -853,7 +881,8 @@ if (currentInDB && currentInDB.lastBestFound) {
                     await nextBtn.scrollIntoViewIfNeeded();
                     await nextBtn.click();
                     pageNum++; // מקדמים את מספר העמוד מיד עם הלחיצה
-                    updateLiveProgress(`📄 סורק עמוד ${pageNum} עבור ${item} (${currentIndex} מתוך ${totalItems} ${itemType})...`); // מעדכנים את החיווי מיד כדי שיהיה מסונכרן למסך
+              // עדכון חיווי מיידי בעת מעבר עמוד לשמירה על מראה אחיד ונקי
+                    updateLiveProgress(`📄 עמוד ${pageNum} | ${item} (${currentIndex} מתוך ${totalItems} ${itemType})`, remainingSeconds);
                     await page.waitForTimeout(8000);
                 } else {
                     console.log(`🏁 סיימתי לסרוק את כל הדפים עבור: ${item}.`);
