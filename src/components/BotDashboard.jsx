@@ -705,24 +705,37 @@
                                         onChange={(e) => searchTemplates(e.target.value)}
                                     />
                                     {dbSearchResults.length > 0 && (
-                                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-40 overflow-y-auto">
+                                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-96 overflow-y-auto">
                                         {dbSearchResults.map(t => {
-                                                // 1. ניקוי יסודי של הטקסט - הסרת שמות, ת"ז וכותרות
+                                                // 1. חילוץ התחום הראשי לצ'יפ הצבעוני
+                                                const groupMatch = t.templateName.match(/תחום:\s*([^|]+)/);
+                                                const groupLabel = groupMatch ? groupMatch[1].trim() : "";
+
+                                                // 2. חילוץ המקצוע (תת-התחום) מתוך הקונפיגורציה השמורה
+                                                const specName = t.selectedSpecialization && CLALIT_SPECIALIZATIONS[t.selectedGroup]
+                                                    ? Object.values(CLALIT_SPECIALIZATIONS[t.selectedGroup]).find(s => String(s.id) === String(t.selectedSpecialization))?.name
+                                                    : "";
+
+                                                // 3. ניקוי יסודי של הטקסט לשורה השנייה
                                                 let info = t.templateName;
-                                                
-                                                // הסרת פרטים אישיים
                                                 if (t.familyMember) info = info.replace(t.familyMember, '');
                                                 if (t.userId) info = info.replace(new RegExp(`תז:\\s*${t.userId}|${t.userId}`, 'g'), '');
+                                                if (groupLabel) info = info.replace(new RegExp(`תחום:\\s*${groupLabel}`, 'g'), '');
 
                                                 // הסרת כותרות קבועות
                                                 info = info.replace(/תחום:|רופא:|עיר:|תאריך:|שעה:/g, '');
 
-                                                // 2. עיבוד סימנים (החלפת | בנקודה וניקוי רווחים כפולים)
-                                                const finalInfo = info
+                                                // 4. עיבוד סימנים (החלפת | בנקודה וניקוי רווחים כפולים)
+                                                let finalInfo = info
                                                     .replace(/\|/g, ' • ')
                                                     .replace(/\s*•\s*•\s*/g, ' • ')
                                                     .replace(/^\s*•\s*|\s*•\s*$/g, '')
                                                     .trim();
+                                                
+                                                // הוספת המקצוע (תת-תחום) לתחילת השורה השנייה אם אינו קיים שם
+                                                if (specName && !finalInfo.includes(specName)) {
+                                                    finalInfo = `${specName} • ${finalInfo}`;
+                                                }
                                                 
                                                 return (
                                                     <div 
@@ -731,39 +744,27 @@
                                                         dir="rtl"
                                                         onClick={() => { 
                                                             const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
-                                                            
-                                                            // 1. שולפים את התור המעודכן ביותר שנשמר ב-DB לתבנית זו
                                                             if (cleanData.lastBestFound) {
                                                                 cleanData.lastFoundDate = cleanData.lastBestFound;
-                                                                
-                                                                // חילוץ תאריך ושם רופא כדי לעדכן גם את הכרטיסייה למטה
-                                                                // דוגמה למבנה: "20.03.2026 - דורון (הרצליה)"
                                                                 const parts = cleanData.lastBestFound.split('-');
                                                                 if (parts.length >= 2) {
                                                                     const datePart = parts[0].trim();
-                                                                    // לוקח את החלק השני, ומפריד אותו מהעיר שבסוגריים
                                                                     const docPart = parts[1].split('(')[0].trim(); 
-                                                                    
                                                                     cleanData.doctorDates = cleanData.doctorDates || {};
                                                                     cleanData.doctorDates[docPart] = datePart;
                                                                 }
                                                             } else if (!cleanData.lastFoundDate) {
                                                                 cleanData.lastFoundDate = ''; 
                                                             }
-                                                            
-                                                            // 2. מעדכנים את הסטייט המקומי (ומסמנים שהתבנית פעילה)
                                                             const updatedConfig = { ...config, ...cleanData, isTemplateActive: true };
                                                             setConfig(updatedConfig); 
-                                                            
-                                                            // 3. קריטי: שומרים מיד לשרת 
                                                             handleAutoSave(updatedConfig);
-                                                            
                                                             setDbSearchResults([]); 
                                                         }}
                                                     >
-                                                        {/* שורה 1: שם ות"ז (מימין) ופח אשפה (משמאל) */}
+                                                        {/* שורה 1: שם, ת"ז ותחום (צבעוני) */}
                                                         <div className="flex items-center justify-between w-full">
-                                                            <div className="flex items-center gap-3">
+                                                            <div className="flex items-center gap-2 flex-wrap">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-xl">👤</span>
                                                                     <span className="text-xl font-black text-purple-700">{t.familyMember}</span>
@@ -772,6 +773,12 @@
                                                                     <span className="text-sm">💳</span>
                                                                     <span className="text-base font-bold text-blue-600">{t.userId}</span>
                                                                 </div>
+                                                                {groupLabel && (
+                                                                    <div className="flex items-center gap-1.5 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
+                                                                        <span className="text-sm">🩺</span>
+                                                                        <span className="text-base font-black text-teal-700">{groupLabel}</span>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                             
                                                             <button 
@@ -782,7 +789,7 @@
                                                             </button>
                                                         </div>
 
-                                                        {/* שורה 2: מידע נקי בלבד */}
+                                                        {/* שורה 2: מידע משלים (מקצוע • עיר • רופאים) */}
                                                         <div className="flex items-start gap-2">
                                                             <span className="text-sm mt-0.5 opacity-70">📋</span>
                                                             <p className="text-[15px] font-bold text-gray-700 leading-tight">

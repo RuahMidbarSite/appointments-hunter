@@ -13,12 +13,16 @@ async function main() {
         args: [
             '--disable-blink-features=AutomationControlled', // מסתיר את עובדת היותו בוט
             '--start-maximized'
+            ,'--disable-search-engine-choice-screen',
+            '--disable-features=PrivacySandboxSettings4'
+            ,'--ignore-certificate-errors'
         ]
     });
 
   const context = await browser.newContext({
         viewport: null, // מאפשר לדפדפן להשתמש בכל שטח המסך המקסימלי
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        
     });
 
     const page = await context.newPage();

@@ -5,6 +5,7 @@ export const generateReportHtml = (logs, familyMember) => {
     const doctorsCount = {};
     const cityCount = {};
     const hoursCount = {};
+    const areasCount = {}; // אובייקט חדש שאוסף את התחומים מהלוג
 
     const logEntries = safeLogs.map(line => {
         const currentLine = String(line || '');
@@ -28,6 +29,13 @@ export const generateReportHtml = (logs, familyMember) => {
                 doctorsCount[docName] = (doctorsCount[docName] || 0) + 1;
             }
 
+            // חילוץ תחום באופן דינמי מתוך השורה בלוג
+            const areaMatch = currentLine.match(/תחום:\s*([^|]+)/);
+            if (areaMatch) {
+                const areaName = areaMatch[1].trim();
+                areasCount[areaName] = (areasCount[areaName] || 0) + 1;
+            }
+
             // חילוץ שעה למפת חום
             const timeMatch = currentLine.match(/(\d{1,2}):\d{2}:\d{2}/);
             if (timeMatch) {
@@ -47,7 +55,7 @@ export const generateReportHtml = (logs, familyMember) => {
                     <div class="mt-2 text-green-900 font-bold text-lg">${currentLine.split(']')[1] || currentLine}</div>
                 </div>`;
         }
-        return ''; // אנחנו לא מציגים את הסריקות הריקות כדי למנוע רשימות ארוכות
+        return ''; // מסתירים סריקות ריקות כדי למנוע רשימות ארוכות
     }).join('');
 
     // בניית ויזואליזציה של שעות
@@ -68,6 +76,24 @@ export const generateReportHtml = (logs, familyMember) => {
         </div>
     ` : '';
 
+    // יצירת מקרא התחומים הדינמי למעלה
+    const areasLegendHtml = Object.keys(areasCount).length > 0 ? `
+        <div class="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+            <h3 class="text-lg font-black text-slate-700 mb-4 flex items-center gap-2">
+                <span>📂 תחומי רפואה שנמצאו</span>
+            </h3>
+            <div class="flex flex-wrap gap-2">
+                ${Object.entries(areasCount).map(([name, count]) => `
+                    <div class="bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                        <span class="font-bold text-slate-800">${name}</span>
+                        <span class="text-xs bg-indigo-50 px-2 py-0.5 rounded-full text-indigo-600 font-bold">${count}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    ` : '';
+
     return `
         <html dir="rtl">
         <head>
@@ -81,21 +107,26 @@ export const generateReportHtml = (logs, familyMember) => {
                     <p class="text-teal-600 font-bold mt-2">דוח פעילות עבור: ${familyMember || 'כל המשפחה'}</p>
                 </div>
                 
-                <div class="grid grid-cols-3 gap-4 mb-10">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                     <div class="bg-teal-600 text-white p-5 rounded-3xl text-center shadow-lg shadow-teal-100">
                         <div class="text-sm opacity-80">תורים נמצאו</div>
-                        <div class="text-4xl font-black">${appointmentsFound}</div>
+                        <div class="text-3xl font-black">${appointmentsFound}</div>
                     </div>
                     <div class="bg-indigo-600 text-white p-5 rounded-3xl text-center shadow-lg shadow-indigo-100">
-                        <div class="text-sm opacity-80">ערים נסרקו</div>
-                        <div class="text-4xl font-black">${Object.keys(cityCount).length}</div>
+                        <div class="text-sm opacity-80">תחומים נסרקו</div>
+                        <div class="text-3xl font-black">${Object.keys(areasCount).length}</div>
                     </div>
                     <div class="bg-amber-500 text-white p-5 rounded-3xl text-center shadow-lg shadow-amber-100">
+                        <div class="text-sm opacity-80">ערים נסרקו</div>
+                        <div class="text-3xl font-black">${Object.keys(cityCount).length}</div>
+                    </div>
+                    <div class="bg-rose-500 text-white p-5 rounded-3xl text-center shadow-lg shadow-rose-100">
                         <div class="text-sm opacity-80">רופאים זמינים</div>
-                        <div class="text-4xl font-black">${Object.keys(doctorsCount).length}</div>
+                        <div class="text-3xl font-black">${Object.keys(doctorsCount).length}</div>
                     </div>
                 </div>
 
+                ${areasLegendHtml}
                 ${heatMapHtml}
 
                 <h3 class="text-xl font-black text-gray-700 mb-4">🏆 הממצאים הכי טובים</h3>
