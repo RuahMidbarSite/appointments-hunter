@@ -1,13 +1,25 @@
 const { solveCaptcha } = require('../../services/captchaService');
 const nodemailer = require('nodemailer');
 const preferredDoctors = require('./constants/doctors_whitelist');
-const mongoose = require('mongoose'); //
-const SearchTemplate = require('../../models/SearchTemplate'); //
+const mongoose = require('mongoose'); 
+const SearchTemplate = require('../../models/SearchTemplate'); 
 const fs = require('fs');
 const path = require('path');
 const { setBotStatus, waitMinutes, isBetterAppointment, updateMemory } = require('../../utils/scheduler/loopManager');
 const { createExecutionReport } = require('../../utils/scheduler/reportGenerator');
+const { navigateHospitalSearch } = require('./hospital_navigator'); // הייבוא החדש
 
+// פונקציה לעדכון סטטוס חי לדשבורד
+function updateLiveProgress(msg) {
+    try {
+        const configPath = './config.json';
+        if (fs.existsSync(configPath)) {
+            const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            cfg.liveProgress = msg;
+            fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+        }
+    } catch (e) {}
+}
 // פונקציה לזיהוי ולהתאוששות מדף שגיאה של כללית
 async function handleResponseSorry(page, targetUrl) {
     const currentUrl = page.url();
@@ -169,6 +181,7 @@ async function runClalit(page) {
 
     const MAIN_URL = 'https://e-services.clalit.co.il/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx';
     console.log("--- מתחיל סריקה עבור כללית (מצב Stealth פעיל) ---");
+    updateLiveProgress("🚀 מתחיל סבב סריקה חדש...");
 
     try {
         const currentUrlAtStart = page.url();
@@ -204,9 +217,11 @@ async function runClalit(page) {
             const loginMode = config.loginMode || 'password';
             console.log(`🔑 נדרש לוגין – מצב: ${loginMode === 'sms' ? 'קוד חד-פעמי SMS' : 'קוד משתמש וסיסמה'}`);
 
+            updateLiveProgress("🔐 מתחבר למערכת כללית...");
             if (loginMode === 'sms') {
                 // --- התחברות עם SMS ---
                 const smsSent = await loginWithSMS(page, config);
+                if (smsSent) updateLiveProgress("📱 ממתין שתזין קוד SMS בדפדפן...");
                 if (!smsSent) {
                     console.log('❌ שליחת SMS נכשלה. עוצר סבב זה.');
                     return;
@@ -255,9 +270,10 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
             console.log("⚡ כבר מחובר! מדלג ישירות לתוך המערכת...");
         }
 
-        console.log("--------------------------------------------------");
+    console.log("--------------------------------------------------");
         console.log("ממתין לסיום תהליך ההתחברות...");
         await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
+        updateLiveProgress("✅ תהליך הכניסה למערכת הושלם בהצלחה!");
 
         // 1. התיקון לפופאפ (לחיצה אגרסיבית עוקפת שכבות)
         await page.evaluate(() => {
@@ -297,7 +313,7 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
         } else {
             console.log("🔄 [STATE] סבב ראשון: מתחיל תהליך בחירת פרופיל וניווט...");
 
-            // ----- תחילת הקוד המקורי שעובד לך -----
+// מעבר לתיק בן משפחה (משותף לשני המסלולים)
             if (config.familyMember && config.familyMember.trim() !== '') {
                 console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
                 try {
@@ -311,111 +327,122 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                 }
             }
 
-            await page.click('text="שירותי האון־ליין"').catch(() => {});
-            await page.waitForTimeout(2500);
-            await page.click('a[title="זימון תורים"]').catch(() => {});
+            const engines = config.activeEngines || ['clalit_specialist'];
 
-            target = await getTargetElement('#ProfessionVisitButton');
-            if (!target) { 
-                await page.waitForTimeout(6000); 
-                target = await getTargetElement('#ProfessionVisitButton'); 
-            }
-
-            if (target) {
-                await target.click('#ProfessionVisitButton');
-                await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
-
-              console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
+            // === מסלול בתי חולים (בדיקות) ===
+            if (engines.includes('clalit_hospital')) {
+                // נחלץ רק את העיר הראשונה מהקונפיג כדי להעביר לניווט (אם יש), אחרת ברירת מחדל
+                const hospitalToSearch = (config.selectedCities && config.selectedCities.length > 0) ? config.selectedCities[0] : 'בילינסון';
                 
-                // 1. בחירת תחום (Group)
-                await target.selectOption('#SelectedGroupCode', groupId);
-                await page.waitForTimeout(3000); 
+                const navResult = await navigateHospitalSearch(page, config, hospitalToSearch);
+                if (navResult.error === 'SYSTEM_CONFIG_ERROR') {
+                    const errorMsg = `<span style="color:red; font-weight:bold;">⚠️ שגיאת מערכת: לא ניתן לזמן תור כרגע</span>`;
+                    const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                    currentConfig.lastFoundDate = errorMsg;
+                    fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+                    // במקרה של שגיאה כזו באתר כללית, אין טעם להמשיך בלולאה הזו
+                    return; 
+                }
+                target = page;
+            } 
+            // === מסלול רפואה יועצת (הקוד המקורי) ===
+            else {
+                await page.click('text="שירותי האון־ליין"').catch(() => {});
+                await page.waitForTimeout(2500);
+                await page.click('a[title="זימון תורים"]').catch(() => {});
 
-                // בדיקה ראשונה: האם הפופ-אפ קפץ כבר אחרי בחירת התחום?
-                const checkReferral = async (stepName) => {
-                    const isMissing = await target.evaluate(() => {
-                        // אוספים את כל האלמנטים שיכולים להיות פופ-אפ (כולל messageView של כללית)
-                        const activeModals = Array.from(document.querySelectorAll('#messageView, .ui-dialog, .modal-dialog, #divMessage, .messgeBox'));
-                        
-                        for (const modal of activeModals) {
-                            // מוודאים שהפופ-אפ אכן מוצג על המסך ולא מוסתר בקוד
-                            const isVisible = modal.offsetParent !== null && window.getComputedStyle(modal).display !== 'none';
-                            if (isVisible) {
-                                if (modal.innerText && modal.innerText.includes('נדרשת הפניה')) {
-                                    return true; // עוצר רק אם החלון *הפעיל* מכיל את הטקסט
+                target = await getTargetElement('#ProfessionVisitButton');
+                if (!target) { 
+                    await page.waitForTimeout(6000); 
+                    target = await getTargetElement('#ProfessionVisitButton'); 
+                }
+
+                if (target) {
+                    await target.click('#ProfessionVisitButton');
+                    await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
+                    console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
+                    
+                    // 1. בחירת תחום (Group)
+                    await target.selectOption('#SelectedGroupCode', groupId);
+                    await page.waitForTimeout(3000);
+
+                    // בדיקה האם הפופ-אפ קפץ כבר אחרי בחירת התחום
+                    const checkReferral = async (stepName) => {
+                        const isMissing = await target.evaluate(() => {
+                            const activeModals = Array.from(document.querySelectorAll('#messageView, .ui-dialog, .modal-dialog, #divMessage, .messgeBox'));
+                            for (const modal of activeModals) {
+                                const isVisible = modal.offsetParent !== null && window.getComputedStyle(modal).display !== 'none';
+                                if (isVisible && modal.innerText && modal.innerText.includes('נדרשת הפניה')) {
+                                    return true; 
                                 }
                             }
+                            return false;
+                        });
+
+                        if (isMissing) {
+                            const { CLALIT_GROUPS } = require('./constants/professions');
+                            const groupName = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup))?.name || "המבוקש";
+                            const errorMsg = `⚠️ חסרה הפנייה בתחום ${groupName}`;
+                            console.log(`💡 [DETECTION-TEST] ${errorMsg} (בשלב: ${stepName})`);
+                            
+                            try {
+                                const formattedError = `<span id="referral-error" style="color: red; font-weight: bold; display: block; text-align: right;">${errorMsg}</span>`;
+                                const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                                currentConfig.lastFoundDate = formattedError;
+                                currentConfig.lastBestFound = formattedError; 
+                                fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+
+                                if (mongoose.connection.readyState === 1) {
+                                    await SearchTemplate.updateOne(
+                                        { userId: config.userId, selectedGroup: config.selectedGroup },
+                                        { 
+                                            $set: { lastBestFound: formattedError },
+                                            $setOnInsert: { templateName: `התראת חסימה - ${Date.now()}` }
+                                        },
+                                        { upsert: true }
+                                    ).catch((dbErr) => console.log('⚠️ [DB-WARN] שגיאה בשמירת התראת הפניה:', dbErr.message));
+                                }
+
+                                console.log('🛑 [STOP-SEARCH] חסרה הפניה. עוצר סריקה לסבב זה.');
+                            } catch (err) {
+                                console.error("Error in detection handler:", err.message); 
+                            }
+                            return true; 
                         }
                         return false;
-                    });
+                    };
 
-                    if (isMissing) {
-                        // חילוץ שם התחום הדינמי מתוך קובץ הקבוצות של כללית
-                        const { CLALIT_GROUPS } = require('./constants/professions');
-                        const groupName = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup))?.name || "המבוקש";
-                        
-                        const errorMsg = `⚠️ חסרה הפנייה בתחום ${groupName}`;
-                        console.log(`💡 [DETECTION-TEST] ${errorMsg} (בשלב: ${stepName})`);
-                        
-                        try {
-                            const formattedError = `<span id="referral-error" style="color: red; font-weight: bold; display: block; text-align: right;">${errorMsg}</span>`;
-                            
-                            // 1. עדכון מקומי מהיר
-                            const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-                            currentConfig.lastFoundDate = formattedError;
-                            currentConfig.lastBestFound = formattedError; 
-                            fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
-                            console.log('✅ [DASHBOARD-SYNC] הודעת השגיאה נכתבה בהצלחה לקובץ.');
+                    if (await checkReferral("בחירת תחום")) return; 
 
-                            // 2. עדכון DB - עם upsert חכם שמונע את שגיאת הכפילות
-                            if (mongoose.connection.readyState === 1) {
-                                await SearchTemplate.updateOne(
-                                    { userId: config.userId, selectedGroup: config.selectedGroup },
-                                    { 
-                                        $set: { lastBestFound: formattedError },
-                                        $setOnInsert: { templateName: `התראת חסימה - ${Date.now()}` }
-                                    },
-                                    { upsert: true }
-                                ).catch((dbErr) => console.log('⚠️ [DB-WARN] שגיאה בשמירת התראת הפניה:', dbErr.message));
-                            }
-
-                            console.log('🛑 [STOP-SEARCH] חסרה הפניה. עוצר סריקה לסבב זה.');
-                            return true; // עוצר את הלולאה
-                        } catch (err) {
-                            console.error("Error in detection handler:", err.message); 
-                        }
+                    // 2. בחירת מקצוע (Specialization)
+                    try {
+                        await target.selectOption('#SelectedSpecializationCode', specId);
+                        await page.waitForTimeout(2000);
+                        if (await checkReferral("בחירת מקצוע")) return;
+                    } catch (e) {
+                        console.log("⚠️ לא ניתן היה לבחור מקצוע - ייתכן והפופ-אפ חוסם את האלמנט.");
+                        return; 
                     }
-                    return isMissing;
-                };
-
-             // בדיקה לאחר בחירת תחום - אם חסרה הפניה, עוצרים את כל הריצה
-                if (await checkReferral("בחירת תחום")) return; 
-
-                // 2. בחירת מקצוע (Specialization)
-                try {
-                    await target.selectOption('#SelectedSpecializationCode', specId);
-                    await page.waitForTimeout(2000);
-                    // בדיקה לאחר בחירת מקצוע - אם חסרה הפניה, עוצרים את הריצה
-                    if (await checkReferral("בחירת מקצוע")) return;
-                } catch (e) {
-                    console.log("⚠️ לא ניתן היה לבחור מקצוע - ייתכן והפופ-אפ חוסם את האלמנט.");
-                    return; // עצירה כדי למנוע ניסיונות לחיצה חסומים בשלבים הבאים
+                } else {
+                    console.log("❌ לא נמצא כפתור 'ProfessionVisitButton', מנסה להמשיך...");
+                    target = page; 
                 }
-            } else {
-                console.log("❌ לא נמצא כפתור 'ProfessionVisitButton', מנסה להמשיך...");
-                target = page; // fallback למניעת קריסה
-            }
-            // ----- סוף הקוד המקורי שעובד לך -----
-        }
+            } // סוף ה-else של מסלול רפואה יועצת
+        } // סוף ה-else של "האם אנחנו כבר בדף החיפוש"
 
-        const sentInThisRun = new Set(); 
+        const sentInThisRun = new Set();
         
         const activeDoctorsNames = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0)
             ? config.selectedDoctorNames
             : [];
 
         let citiesToSearch = config.selectedCities || [];
-        if (citiesToSearch.length === 0 && activeDoctorsNames.length === 0) {
+        const engines = config.activeEngines || ['clalit_specialist'];
+
+        // אם מנוע בתי חולים פעיל ואין ערים, נשתמש בברירת מחדל של בית חולים
+        if (engines.includes('clalit_hospital') && citiesToSearch.length === 0) {
+            citiesToSearch = ['בילינסון']; 
+        } else if (citiesToSearch.length === 0 && activeDoctorsNames.length === 0) {
             citiesToSearch = ['הרצליה'];
         }
 
@@ -426,7 +453,47 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
             ? config.selectedDoctorNames
             : [];
 
+       // --- מנגנון הערכת זמן מבוסס למידה ---
+       const learningPath = path.join(__dirname, '../../utils/bot_learning_data.json');
+       let scanHistory = {};
+       try { 
+           if (fs.existsSync(learningPath)) {
+               scanHistory = JSON.parse(fs.readFileSync(learningPath, 'utf8')); 
+           }
+       } catch(e) { console.log("⚠️ שגיאה בקריאת קובץ הלמידה ב-utils"); }
+
+       const getSearchKey = (item) => `${config.selectedGroup}_${config.selectedSpecialization}_${item}`;
+       const DEFAULT_TIME_PER_ITEM = 45; // שניות כברירת מחדל
+
+       let currentIndex = 0;
+       const totalItems = searchItems.length;
+       const itemType = isDoctorSearch ? 'רופאים' : 'ערים';
+
        for (const item of searchItems) {
+            currentIndex++;
+            const startTime = Date.now(); // תחילת מדידת זמן לפריט נוכחי
+            
+            // חישוב זמן נותר על בסיס היסטוריה
+            let remainingSeconds = 0;
+            let isDefault = false;
+
+            for (let i = currentIndex - 1; i < searchItems.length; i++) {
+                const key = getSearchKey(searchItems[i]);
+                if (scanHistory[key]) {
+                    remainingSeconds += scanHistory[key];
+                } else {
+                    remainingSeconds += DEFAULT_TIME_PER_ITEM;
+                    isDefault = true;
+                }
+            }
+
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = Math.floor(remainingSeconds % 60);
+            const timeStr = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            const estimationMsg = isDefault ? `(זמן משוער: ${timeStr}*)` : `(זמן נותר: ${timeStr})`;
+
+            // חשוב: השורה הזו היא שמעדכנת את המסך שלך בזמן אמת
+            updateLiveProgress(`🔎 סורק: ${item} ${estimationMsg} [${currentIndex}/${totalItems}]`);
             // בדיקה האם המשתמש לחץ על 'עצור' בדשבורד לפני שעוברים לעיר/רופא הבא
             const stopCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
             // עוצר רק אם המשתמש לחץ "עצור" (גם הלולאה כבויה וגם הסטטוס במנוחה)
@@ -529,6 +596,7 @@ await page.waitForTimeout(300);
             let pageNum = 1;
 
             while (hasNextPage) {
+                updateLiveProgress(`📄 סורק עמוד ${pageNum} עבור ${item} (${currentIndex} מתוך ${totalItems} ${itemType})...`);
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} עבור ${item}...`);
               //  await page.screenshot({ path: `debug_${item}_page_${pageNum}.png` });
                 console.log(`📸 שמרתי צילום מסך בתיקייה הראשית: debug_${item}_page_${pageNum}.png`);
@@ -784,8 +852,9 @@ if (currentInDB && currentInDB.lastBestFound) {
                     console.log(`➡️ נמצא כפתור 'הבא', עובר לדף ${pageNum + 1}...`);
                     await nextBtn.scrollIntoViewIfNeeded();
                     await nextBtn.click();
+                    pageNum++; // מקדמים את מספר העמוד מיד עם הלחיצה
+                    updateLiveProgress(`📄 סורק עמוד ${pageNum} עבור ${item} (${currentIndex} מתוך ${totalItems} ${itemType})...`); // מעדכנים את החיווי מיד כדי שיהיה מסונכרן למסך
                     await page.waitForTimeout(8000);
-                    pageNum++;
                 } else {
                     console.log(`🏁 סיימתי לסרוק את כל הדפים עבור: ${item}.`);
                     hasNextPage = false;
@@ -798,10 +867,30 @@ if (currentInDB && currentInDB.lastBestFound) {
                 if (el) el.value = '';
             }, '#SelectedCityName');
             
+            // עדכון נתוני הלמידה של הבוט בתיקיית utils
+            const duration = Math.floor((Date.now() - startTime) / 1000);
+            const currentItemKey = getSearchKey(item);
+            
+            // שימוש בממוצע נע כדי להחליק תנודות
+            if (scanHistory[currentItemKey]) {
+                scanHistory[currentItemKey] = Math.floor((scanHistory[currentItemKey] + duration) / 2);
+            } else {
+                scanHistory[currentItemKey] = duration;
+            }
+            
+            try {
+                fs.writeFileSync(learningPath, JSON.stringify(scanHistory, null, 2));
+            } catch (err) {
+                console.error("❌ שגיאה בכתיבת קובץ הלמידה ל-utils:", err.message);
+            }
+
             await page.waitForTimeout(2000);
         }
 
         console.log(`\n✅ סריקת כל הערים והדפים הסתיימה!`);
+        
+        const endConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+        updateLiveProgress(endConfig.runInLoop ? "✅ הסתיימה הבדיקה וממתינים לסבב הבא..." : "✅ הסתיימה הבדיקה.");
 
        // --- שליחת מייל רק אם נמצא שיפור בסבב הזה לעומת מה שקיים בדשבורד ---
         if (bestApptForEmailThisRun) {
@@ -852,6 +941,7 @@ if (currentInDB && currentInDB.lastBestFound) {
         const configRefresh = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
         
         if (configRefresh.runInLoop) {
+            updateLiveProgress("⏳ בהמתנה לזמן הסבב הבא...");
             const frequencyRange = configRefresh.loopFrequency || "10-15";
             console.log(`⏳ סבב הסתיים. הדפדפן נשאר פתוח. ממתין ${frequencyRange} דקות...`);
 

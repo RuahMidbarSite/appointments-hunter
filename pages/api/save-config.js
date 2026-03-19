@@ -49,7 +49,8 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({
       ...currentConfig,
-      lastFoundDate, // הוספת המידע לתשובה לדשבורד
+      lastFoundDate, 
+      liveProgress: currentConfig.liveProgress || '', // תוספת: שליחת הסטטוס החי לדשבורד
       userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID'),
       userCode: currentConfig.userCode || cleanEnv('CLALIT_USER_CODE'),
       password: currentConfig.password || cleanEnv('CLALIT_PASSWORD'),
@@ -154,13 +155,14 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ message: 'Config saved silently' });
       }
 
-      // בדיקה האם זו פקודת עצירה בלבד מהדשבורד
+     // בדיקה האם זו פקודת עצירה בלבד מהדשבורד
       if (req.body && req.body.action === 'stop') {
         // עדכון הקובץ לסטטוס כבוי כדי שהנורה תתעדכן מיד
         if (fs.existsSync(configPath)) {
             const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
             cfg.runInLoop = false;
             cfg.botStatus = 'idle';
+            cfg.liveProgress = '🛑 עצרתי הכל'; // כתיבת החיווי לקובץ ההגדרות
             fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
         }
         if (currentBotProcess) {
