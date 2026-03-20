@@ -4,28 +4,14 @@
   "password": "Ruah816#",
   "familyMember": "עמרי",
   "email": "online.ruahmidbar1@gmail.com",
-  "loginMode": "password",
+  "loginMode": "sms",
   "selectedCities": [
-    "אילת",
-    "באר שבע",
-    "אשקלון",
-    "ירושלים",
-    "פתח תקווה",
-    "תל אביב - יפו",
-    "רחובות",
-    "הרצליה",
-    "נתניה",
-    "חדרה",
-    "חיפה",
-    "נהריה",
-    "צפת",
-    "עפולה",
-    "טבריה"
+    "רחובות"
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "48",
-  "selectedSpecialization": "48",
+  "selectedGroup": "",
+  "selectedSpecialization": "",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
@@ -35,7 +21,7 @@
   "lastFoundDate": "",
   "doctorDates": {},
   "activeEngines": [
-    "clalit_specialist"
+    "mor_institute"
   ],
   "isTemplateActive": true,
   "liveProgress": "🛑 עצרתי הכל",
@@ -43,5 +29,14 @@
   "lastBestFound": "",
   "nextRunTime": null,
   "botStatus": "idle",
-  "scanTimeRemaining": 60
+  "scanTimeRemaining": null,
+  "morSettings": {
+    "useManualPath": true,
+    "category": "דימות: אולטרסאונד / CT",
+    "areaPriority": [
+      "ירושלים והסביבה"
+    ],
+    "phoneSuffix": "6554868"
+  },
+  "createdAt": "2026-03-20T22:01:47.852Z"
 }

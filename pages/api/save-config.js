@@ -3,6 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 const SearchTemplate = require('../../src/models/SearchTemplate');
+const MorSearchTemplate = require('../../src/models/MorSearchTemplate'); // המודל החדש של מור
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -32,11 +33,16 @@ module.exports = async function handler(req, res) {
     
     try {
         await dbConnect();
-        // חיפוש התבנית הספציפית לפי תעודת זהות ותחום
-        const template = await SearchTemplate.findOne({ 
-            userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID'), 
-            selectedGroup: currentConfig.selectedGroup 
-        });
+        
+        // ניתוב חכם: בחירת הטבלה לפי המנוע שמוגדר בקונפיגורציה
+        const isMor = currentConfig.activeEngines && currentConfig.activeEngines.includes('mor_institute');
+        const TargetModel = isMor ? MorSearchTemplate : SearchTemplate;
+
+        // בניית השאילתה - למור מחפשים לפי ת.ז, לכללית לפי ת.ז ותחום
+        const query = { userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID') };
+        if (!isMor) query.selectedGroup = currentConfig.selectedGroup;
+
+        const template = await TargetModel.findOne(query);
 
         if (template && template.lastBestFound) {
             lastFoundDate = template.lastBestFound;
@@ -67,7 +73,7 @@ module.exports = async function handler(req, res) {
       }
       await dbConnect();
 
-      // חיפוש תבניות ב-DB
+      // חיפוש תבניות בשתי הטבלאות במקביל
       if (req.body.action === 'search_templates') {
           const query = req.body.query || '';
           
@@ -75,50 +81,66 @@ module.exports = async function handler(req, res) {
               return res.status(200).json([]);
           }
 
-          // חיפוש ממוקד: אך ורק בשדות ש*מתחילים* בתווים שהוקלדו (שימוש בסימן ^)
-          const templates = await SearchTemplate.find({
+          const searchFilter = {
               $or: [
                   { familyMember: { $regex: `^${query}`, $options: 'i' } },
                   { userId: { $regex: `^${query}`, $options: 'i' } }
               ]
-          })
-          .sort({ familyMember: 1 }) // מסדר אלפביתית לפי שם בן המשפחה
-          .limit(15); 
+          };
+
+          // מחפש בשתי הטבלאות ומאחד תוצאות
+          const clalitTemplates = await SearchTemplate.find(searchFilter).lean();
+          const morTemplates = await MorSearchTemplate.find(searchFilter).lean();
           
-          return res.status(200).json(templates);
+          const combinedTemplates = [...clalitTemplates, ...morTemplates]
+              .sort((a, b) => (a.familyMember || '').localeCompare(b.familyMember || ''))
+              .slice(0, 15);
+          
+          return res.status(200).json(combinedTemplates);
       }
 
-      // שמירת תבנית ל-DB
+      // שמירת תבנית ל-DB (ניתוב אוטומטי לטבלה הנכונה)
       if (req.body.action === 'save_template_to_db') {
           const { templateName, ...configData } = req.body.data;
-          await SearchTemplate.findOneAndUpdate(
+          
+          const isMor = configData.activeEngines && configData.activeEngines.includes('mor_institute');
+          const TargetModel = isMor ? MorSearchTemplate : SearchTemplate;
+
+          await TargetModel.findOneAndUpdate(
               { templateName },
               { ...configData, updatedAt: new Date() },
               { upsert: true }
           );
           return res.status(200).json({ message: 'Saved to DB' });
       }
-        // מחיקת תבנית מה-DB
+
+      // מחיקת תבנית מה-DB
       if (req.body.action === 'delete_template') {
           const { id } = req.body;
+          // מנסה למחוק משתיהן (רק אחת תצליח בהתאם ל-ID)
           await SearchTemplate.findByIdAndDelete(id);
+          await MorSearchTemplate.findByIdAndDelete(id);
           return res.status(200).json({ message: 'Template deleted' });
       }
+
       // ניקוי ממוקד: סוגר את הבוט הקודם ואת הדפדפנים שלו מבלי להפיל את השרת
       console.log("🪓 מנקה שאריות של דפדפנים ובוט קודם...");
-      // סגירה מבוקרת של תהליך הבוט הקודם (ללא פקודות מערכת שסוגרות את כל הכרום)
       if (currentBotProcess) {
         console.log(`🪓 שולח בקשת עצירה לבוט (PID: ${currentBotProcess.pid})...`);
-        currentBotProcess.kill('SIGINT'); // שליחת סיגנל סגירה מסודר
+        currentBotProcess.kill('SIGINT');
       }
       currentBotProcess = null;
 
       // טיפול באיפוס תור אחרון (מחיקה מכל המקורות)
       if (req.body && req.body.action === 'reset_last_found') {
           try {
-              // 1. איפוס ב-Database עבור המשתמש והתחום הנוכחי
+              // 1. איפוס ב-Database (מבצע בשתי הטבלאות ליתר ביטחון)
               await SearchTemplate.updateOne(
                   { userId: req.body.userId, selectedGroup: req.body.selectedGroup },
+                  { $set: { lastBestFound: "" } }
+              );
+              await MorSearchTemplate.updateMany(
+                  { userId: req.body.userId },
                   { $set: { lastBestFound: "" } }
               );
 

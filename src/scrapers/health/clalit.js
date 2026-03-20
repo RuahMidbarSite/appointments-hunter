@@ -7,7 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const { setBotStatus, waitMinutes, isBetterAppointment, updateMemory } = require('../../utils/scheduler/loopManager');
 const { createExecutionReport } = require('../../utils/scheduler/reportGenerator');
-const { navigateHospitalSearch } = require('./hospital_navigator'); // הייבוא החדש
+const { navigateHospitalSearch } = require('./hospital_navigator');
+const { navigateMor } = require('./mor_navigator'); // הוספת הייבוא למכון מור
 
 // פונקציה לעדכון סטטוס חי לדשבורד
 function updateLiveProgress(msg, seconds = null) {
@@ -364,6 +365,33 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
             }
 
             const engines = config.activeEngines || ['clalit_specialist'];
+
+            // === מסלול מכון מור ===
+            if (engines.includes('mor_institute')) {
+                const morResult = await navigateMor(page, config);
+                if (morResult) {
+                    const foundStr = `מור: ${morResult.date} ב-${morResult.branch} (${morResult.time})`;
+                    updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
+                    
+                    // עדכון הקונפיגורציה להצגה בדשבורד
+                    const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                    currentConfig.lastFoundDate = foundStr;
+                    fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+
+                    // שליחת מייל התראה
+                    try {
+                        await sendEmailNotification(
+                            `מכון מור - ${morResult.branch}`, 
+                            morResult.area, 
+                            `${morResult.date} בשעה ${morResult.time}`, 
+                            config.email
+                        );
+                    } catch (e) {
+                        console.error("⚠️ שגיאה בשליחת מייל מור:", e.message);
+                    }
+                }
+                return; // סיום הסבב לאחר סריקת מור
+            }
 
             // === מסלול בתי חולים (בדיקות) ===
             if (engines.includes('clalit_hospital')) {

@@ -116,28 +116,31 @@
             dropdownRef.current?.querySelector('input')?.focus();
         }}
     >
-        {/* תצוגת הבחירות כצ'יפים (Tags) - תמיד גלויים */}
-        {selected.map(val => {
-            const option = isObject ? (options || []).find(o => String(o.key || o.id) === String(val)) : null;
-            const label = isObject ? (option?.shortLabel || option?.label || val) : val;
-            const displayLabel = String(label).split('|')[0].trim();
+        {/* תצוגת הבחירות כצ'יפים עם מספר סדר עדיפות */}
+{selected.map((val, index) => {
+    const option = isObject ? (options || []).find(o => String(o.key || o.id) === String(val)) : null;
+    const label = isObject ? (option?.shortLabel || option?.label || val) : val;
+    const displayLabel = String(label).split('|')[0].trim();
 
-            return (
-                <span key={val} className="flex items-center gap-2 bg-blue-50 text-blue-700 pr-1.5 pl-3 py-1 rounded-full text-base font-bold border border-blue-200 group/chip hover:bg-blue-100 transition-colors">
-                    <button 
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onChange(selected.filter(item => item !== val));
-                        }}
-                        className="text-blue-300 hover:text-red-500 hover:bg-red-50 w-5 h-5 rounded-full flex items-center justify-center transition-all text-xs font-black"
-                    >
-                        ✕
-                    </button>
-                    <span className="leading-none">{displayLabel}</span>
-                </span>
-            );
-        })}
+    return (
+        <span key={val} className="flex items-center gap-2 bg-teal-50 text-teal-700 pr-1 pl-3 py-1 rounded-full text-base font-bold border border-teal-200 group/chip hover:bg-teal-100 transition-colors">
+            <div className="flex items-center justify-center w-5 h-5 bg-teal-600 text-white rounded-full text-[10px] font-black shadow-sm">
+                {index + 1}
+            </div>
+            <span className="leading-none">{displayLabel}</span>
+            <button 
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onChange(selected.filter(item => item !== val));
+                }}
+                className="text-teal-300 hover:text-red-500 hover:bg-red-50 w-5 h-5 rounded-full flex items-center justify-center transition-all text-xs font-black mr-1"
+            >
+                ✕
+            </button>
+        </span>
+    );
+})}
 
         {/* שדה הקלדה לחיפוש */}
         <input 
@@ -315,30 +318,7 @@
         };
 
         const saveToDB = async () => {
-            // 1. חילוץ שם התחום בצורה נכונה
-            const selectedGroupObj = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup));
-            const groupName = selectedGroupObj ? selectedGroupObj.name : "כללי";
-            // יצירת רשימת ערים מופרדת בפסיקים עבור התצוגה ושם התבנית
-    const cityName = config.selectedCities.length > 0 
-        ? config.selectedCities.join(', ') 
-        : "לא נבחרה עיר";
-            
-            // 2. טיפול במידע על הרופא
-            let doctorLabelForConfirm = "";
-            let doctorLabelForDB = "";
-            if (config.selectedDoctors && config.selectedDoctors.length > 0) {
-                if (config.selectedDoctors.length === 1) {
-                    const rawDocName = config.selectedDoctorNames?.[0] || "רופא";
-                    const cleanDocName = rawDocName.replace(/ד"ר|דר'/g, '').trim();
-                    doctorLabelForConfirm = `\n🩺 רופא: ד"ר ${cleanDocName}`;
-                    doctorLabelForDB = ` | רופא: ד"ר ${cleanDocName}`;
-                } else {
-                    doctorLabelForConfirm = `\n🩺 רופאים: ${config.selectedDoctors.length}`;
-                    doctorLabelForDB = ` | רופאים: ${config.selectedDoctors.length}`;
-                }
-            }
-
-            // 3. יצירת תאריך מלא (DD.MM.YYYY) ושעה
+            // יצירת תאריך מלא (DD.MM.YYYY) ושעה
             const now = new Date();
             const day = now.getDate().toString().padStart(2, '0');
             const month = (now.getMonth() + 1).toString().padStart(2, '0');
@@ -346,18 +326,60 @@
             const datePart = `${day}.${month}.${year}`;
             const timePart = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-            // 4. בניית שם התבנית ל-DB (שורה אחת מפורטת)
-            const autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | דוא"ל: ${config.email || 'לא הוזן'} | תחום: ${groupName}${doctorLabelForDB} | עיר: ${cityName} | תאריך: ${datePart} | שעה: ${timePart}`;
+            let autoName = "";
+            let confirmMessage = "";
             
-            // 5. הודעת אישור מפורטת ומחולקת לשורות
-            const confirmMessage = `לשמור תבנית חיפוש חדשה?\n\n` +
+            // פיצול הלוגיקה: בודקים אם המנוע הנבחר הוא מכון מור
+            const isMor = config.activeEngines?.includes('mor_institute');
+
+            if (isMor) {
+                // לוגיקה לשמירה והצגת נתונים של מכון מור
+                const searchType = config.morSettings?.useManualPath ? config.morSettings.category : (config.morSettings?.targetReferral || 'לא הוגדר טקסט לחיפוש');
+                const areas = config.morSettings?.areaPriority?.length > 0 ? config.morSettings.areaPriority.join(', ') : 'לא נבחרו אזורים';
+                
+                autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | דוא"ל: ${config.email || 'לא הוזן'} | מכון מור | בדיקה: ${searchType} | אזורים: ${areas} | תאריך: ${datePart} | שעה: ${timePart}`;
+                
+                confirmMessage = `לשמור תבנית חיפוש למכון מור?\n\n` +
                                 `👤 שם: ${config.familyMember || 'ללא שם'}\n` +
                                 `💳 תז: ${config.userId || ''}\n` +
-                                `📧 דוא"ל: ${config.email || 'לא הוזן'}\n` +
-                                `📋 תחום: ${groupName}${doctorLabelForConfirm}\n` +
-                                `📍 עיר: ${cityName}\n` +
+                                `📱 נייד (מור): ${config.morSettings?.phonePrefix || '052'}-${config.morSettings?.phoneSuffix || 'לא הוזן'}\n` +
+                                `📋 בדיקה: ${searchType}\n` +
+                                `📍 אזורים: ${areas}\n` +
                                 `📅 תאריך: ${datePart}\n` +
                                 `🕒 שעה: ${timePart}`;
+            } else {
+                // הלוגיקה המקורית עבור שירותי קופ"ח כללית
+                const selectedGroupObj = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup));
+                const groupName = selectedGroupObj ? selectedGroupObj.name : "כללי";
+                const cityName = config.selectedCities.length > 0 
+                    ? config.selectedCities.join(', ') 
+                    : "לא נבחרה עיר";
+                
+                let doctorLabelForConfirm = "";
+                let doctorLabelForDB = "";
+                if (config.selectedDoctors && config.selectedDoctors.length > 0) {
+                    if (config.selectedDoctors.length === 1) {
+                        const rawDocName = config.selectedDoctorNames?.[0] || "רופא";
+                        const cleanDocName = rawDocName.replace(/ד"ר|דר'/g, '').trim();
+                        doctorLabelForConfirm = `\n🩺 רופא: ד"ר ${cleanDocName}`;
+                        doctorLabelForDB = ` | רופא: ד"ר ${cleanDocName}`;
+                    } else {
+                        doctorLabelForConfirm = `\n🩺 רופאים: ${config.selectedDoctors.length}`;
+                        doctorLabelForDB = ` | רופאים: ${config.selectedDoctors.length}`;
+                    }
+                }
+
+                autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | דוא"ל: ${config.email || 'לא הוזן'} | תחום: ${groupName}${doctorLabelForDB} | עיר: ${cityName} | תאריך: ${datePart} | שעה: ${timePart}`;
+                
+                confirmMessage = `לשמור תבנית חיפוש חדשה לכללית?\n\n` +
+                                    `👤 שם: ${config.familyMember || 'ללא שם'}\n` +
+                                    `💳 תז: ${config.userId || ''}\n` +
+                                    `📧 דוא"ל: ${config.email || 'לא הוזן'}\n` +
+                                    `📋 תחום: ${groupName}${doctorLabelForConfirm}\n` +
+                                    `📍 עיר: ${cityName}\n` +
+                                    `📅 תאריך: ${datePart}\n` +
+                                    `🕒 שעה: ${timePart}`;
+            }
 
             if (!confirm(confirmMessage)) return;
 
@@ -676,18 +698,49 @@
                                         </div>
                                     )}
 
-                                    {/* שם פרטי למעבר תיק (למשל עבור ילדים/בן זוג) */}
-                                    <div className="flex items-center gap-2">
-                                        <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">שם פרטי</label>
-                                        <input 
-                                            type="text" 
-                                            name="familyMember" 
-                                            value={config.familyMember} 
-                                            onChange={handleChange} 
-                                            placeholder='למעבר תיק (למשל: נועה)'
-                                            className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" 
-                                        />
-                                    </div>
+                                    {/* שם פרטי - מופיע תמיד */}
+<div className="flex items-center gap-2">
+    <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">שם פרטי</label>
+    <input 
+        type="text" 
+        name="familyMember" 
+        value={config.familyMember} 
+        onChange={handleChange} 
+        placeholder='למעבר תיק (למשל: נועה)'
+        className="flex-1 px-3 py-1.5 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-blue-400 bg-white" 
+    />
+</div>
+
+{/* טלפון נייד למכון מור - סידור מעודכן עם נעילת תבנית */}
+{config.activeEngines?.includes('mor_institute') && (
+    <div className="flex items-center gap-2 bg-amber-50/50 p-2 rounded-xl border border-amber-100 mt-1">
+        <label className="text-base font-bold text-amber-700 w-24 shrink-0 text-left">נייד (מור)</label>
+        <div className="flex flex-1 gap-1 flex-row-reverse">
+            <select 
+                value={config.morSettings?.phonePrefix || "052"} 
+                onChange={(e) => {
+                    const updated = {...config, morSettings: {...config.morSettings, phonePrefix: e.target.value}, isTemplateActive: false};
+                    setConfig(updated); handleAutoSave(updated);
+                }}
+                className="w-20 px-1 py-1.5 border border-amber-200 rounded-lg font-bold text-lg outline-none bg-white text-center"
+            >
+                {["050", "052", "053", "054", "055", "058"].map(p => <option key={p}>{p}</option>)}
+            </select>
+            <input 
+                type="text" 
+                maxLength="7"
+                dir="ltr" 
+                placeholder="7 ספרות"
+                value={config.morSettings?.phoneSuffix || ""} 
+                onChange={(e) => {
+                    const updated = {...config, morSettings: {...config.morSettings, phoneSuffix: e.target.value.replace(/\D/g, '')}, isTemplateActive: false};
+                    setConfig(updated); handleAutoSave(updated);
+                }}
+                className="flex-1 px-3 py-1.5 border border-amber-200 rounded-lg font-bold text-lg outline-none bg-white text-right"
+            />
+        </div>
+    </div>
+)}
                             {/* שדה אימייל */}
                                     <div className="flex items-center gap-2 mt-1.5">
                                         <label className="text-base font-bold text-gray-500 w-24 shrink-0 text-left">אימייל</label>
@@ -885,102 +938,197 @@
                                 </div>
 
                                 <div className="space-y-2">
-                                {/* תפריט רמה 1: תחום / סוג בדיקה */}
-                                    <div className="space-y-0.5">
-                                        <label className="text-base font-bold text-gray-500 pr-1">
-                                            {config.activeEngines?.includes('clalit_hospital') ? 'סוג בדיקה (MRI, CT, US)' : 'תחום'}
-                                        </label>
-                                        <MultiSelectDropdown 
-                                            options={config.activeEngines?.includes('clalit_hospital')
-                                                ? Object.values(HOSPITAL_TEST_TYPES).map(g => ({ id: String(g.id), label: g.name }))
-                                                : Object.values(CLALIT_GROUPS).map(g => ({ id: String(g.id), label: g.name }))
-                                            } 
-                                            selected={config.selectedGroup ? [String(config.selectedGroup)] : []} 
-                                            onChange={(val) => {
-                                                const groupId = val[0];
-                                                let firstSpec = '';
-                                                
-                                                // קביעת ערך ברירת מחדל לתת-התפריט לפי סוג המנוע
-                                                if (config.activeEngines?.includes('clalit_hospital')) {
-                                                    firstSpec = HOSPITAL_TARGET_ORGANS[groupId]?.[0]?.id || '';
-                                                } else {
-                                                    firstSpec = CLALIT_SPECIALIZATIONS[groupId]?.[0]?.id || '';
-                                                }
+                                {!config.activeEngines?.includes('mor_institute') && (
+                                    <>
+                                        {/* תפריט רמה 1: תחום / סוג בדיקה */}
+                                        <div className="space-y-0.5">
+                                            <label className="text-base font-bold text-gray-500 pr-1">
+                                                {config.activeEngines?.includes('clalit_hospital') ? 'סוג בדיקה (MRI, CT, US)' : 'תחום'}
+                                            </label>
+                                            <MultiSelectDropdown 
+                                                options={config.activeEngines?.includes('clalit_hospital')
+                                                    ? Object.values(HOSPITAL_TEST_TYPES).map(g => ({ id: String(g.id), label: g.name }))
+                                                    : Object.values(CLALIT_GROUPS).map(g => ({ id: String(g.id), label: g.name }))
+                                                } 
+                                                selected={config.selectedGroup ? [String(config.selectedGroup)] : []} 
+                                                onChange={(val) => {
+                                                    const groupId = val[0];
+                                                    let firstSpec = '';
+                                                    
+                                                    // קביעת ערך ברירת מחדל לתת-התפריט לפי סוג המנוע
+                                                    if (config.activeEngines?.includes('clalit_hospital')) {
+                                                        firstSpec = HOSPITAL_TARGET_ORGANS[groupId]?.[0]?.id || '';
+                                                    } else {
+                                                        firstSpec = CLALIT_SPECIALIZATIONS[groupId]?.[0]?.id || '';
+                                                    }
 
-                                                setConfig({
-                                                    ...config, 
-                                                    selectedGroup: groupId, 
-                                                    selectedSpecialization: String(firstSpec), 
-                                                    selectedDoctors: [],
-                                                    selectedDoctorNames: []
-                                                });
-                                            }} 
-                                            placeholder={config.activeEngines?.includes('clalit_hospital') ? "בחר סוג בדיקה..." : "בחר תחום..."}
-                                            isObject 
+                                                    setConfig({
+                                                        ...config, 
+                                                        selectedGroup: groupId, 
+                                                        selectedSpecialization: String(firstSpec), 
+                                                        selectedDoctors: [],
+                                                        selectedDoctorNames: []
+                                                    });
+                                                }} 
+                                                placeholder={config.activeEngines?.includes('clalit_hospital') ? "בחר סוג בדיקה..." : "בחר תחום..."}
+                                                isObject 
+                                                isMulti={false} 
+                                                focusClass="focus:ring-[#00a896]" 
+                                            />
+                                        </div>
+
+                                        {/* תפריט רמה 2: מקצוע / איבר מטרה */}
+                                        <div className="space-y-0.5">
+                                            <label className="text-base font-bold text-gray-500 pr-1">
+                                                {config.activeEngines?.includes('clalit_hospital') ? 'איבר מטרה' : 'מקצוע'}
+                                            </label>
+                                            <MultiSelectDropdown 
+                                                options={config.activeEngines?.includes('clalit_hospital')
+                                                    ? (HOSPITAL_TARGET_ORGANS[config.selectedGroup] ? Object.values(HOSPITAL_TARGET_ORGANS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : [])
+                                                    : (CLALIT_SPECIALIZATIONS[config.selectedGroup] ? Object.values(CLALIT_SPECIALIZATIONS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : [])
+                                                } 
+                                                selected={config.selectedSpecialization ? [String(config.selectedSpecialization)] : []} 
+                                                onChange={(val) => setConfig({...config, selectedSpecialization: val[0], selectedDoctors: [], selectedDoctorNames: []})} 
+                                                placeholder={config.activeEngines?.includes('clalit_hospital') ? "בחר איבר מטרה..." : "בחר מקצוע..."}
+                                               isObject 
                                             isMulti={false} 
                                             focusClass="focus:ring-[#00a896]" 
                                         />
-                                    </div>
-
-                                    {/* תפריט רמה 2: מקצוע / איבר מטרה */}
-                                    <div className="space-y-0.5">
-                                        <label className="text-base font-bold text-gray-500 pr-1">
-                                            {config.activeEngines?.includes('clalit_hospital') ? 'איבר מטרה' : 'מקצוע'}
-                                        </label>
-                                        <MultiSelectDropdown 
-                                            options={config.activeEngines?.includes('clalit_hospital')
-                                                ? (HOSPITAL_TARGET_ORGANS[config.selectedGroup] ? Object.values(HOSPITAL_TARGET_ORGANS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : [])
-                                                : (CLALIT_SPECIALIZATIONS[config.selectedGroup] ? Object.values(CLALIT_SPECIALIZATIONS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : [])
-                                            } 
-                                            selected={config.selectedSpecialization ? [String(config.selectedSpecialization)] : []} 
-                                            onChange={(val) => setConfig({...config, selectedSpecialization: val[0], selectedDoctors: [], selectedDoctorNames: []})} 
-                                            placeholder={config.activeEngines?.includes('clalit_hospital') ? "בחר איבר מטרה..." : "בחר מקצוע..."}
-                                           isObject 
-                                        isMulti={false} 
-                                        focusClass="focus:ring-[#00a896]" 
-                                    />
-                                </div>
-
-                                {/* ערים לסריקה */}
-                                    <div className="space-y-0.5">
-                                        <label className="text-base font-bold text-gray-500 pr-1">ערים לסריקה</label>
-                                        <MultiSelectDropdown 
-                                            options={AVAILABLE_CITIES} 
-                                            selected={config.selectedCities} 
-                                            onChange={handleCitiesChange} 
-                                            placeholder="בחר ערים לסריקה..." 
-                                            isObject 
-                                            focusClass="focus:ring-[#00a896]" 
-                                        />
-                                    </div>
-
-                                    {/* רופאים מועדפים - מופיע פעם אחת בלבד */}
-                                    <div className="space-y-0.5">
-                                        <label className="text-base font-bold text-gray-500 pr-1">רופאים מועדפים</label>
-                                        <MultiSelectDropdown 
-                                            options={getDoctorsList()} 
-                                            selected={config.selectedDoctors} 
-                                            onChange={handleDoctorsChange} 
-                                            placeholder="חפש רופאים..." 
-                                            isObject 
-                                            focusClass="focus:ring-[#00a896]" 
-                                        />
-                                    </div>
-                                    
-                                    <div className="flex items-center justify-between bg-white p-2 rounded-2xl border border-teal-100">
-                                        <label className="flex items-center gap-2 text-lg font-bold text-gray-600 cursor-pointer leading-none">
-                                            <input type="checkbox" checked={config.includeSurrounding} onChange={(e) => setConfig({...config, includeSurrounding: e.target.checked})} className="w-5 h-5 accent-[#00a896]" /> 
-                                            כולל יישובים בסביבה
-                                        </label>
-                                        <div className="flex gap-2">
-                                            {['הכל', 'כללית', 'מושלם'].map(t => (
-                                                <label key={t} className="flex items-center gap-1.5 cursor-pointer text-base font-bold text-gray-500 leading-none">
-                                                    <input type="radio" name="ins" value={t} checked={config.insuranceType === t} onChange={handleChange} className="w-4 h-4 accent-[#00a896]" /> 
-                                                    {t}
-                                                </label>
-                                            ))}
                                         </div>
-                                    </div>
+
+                                        {/* ערים לסריקה */}
+                                        <div className="space-y-0.5">
+                                            <label className="text-base font-bold text-gray-500 pr-1">ערים לסריקה</label>
+                                            <MultiSelectDropdown 
+                                                options={AVAILABLE_CITIES} 
+                                                selected={config.selectedCities} 
+                                                onChange={handleCitiesChange} 
+                                                placeholder="בחר ערים לסריקה..." 
+                                                isObject 
+                                                focusClass="focus:ring-[#00a896]" 
+                                            />
+                                        </div>
+                                    </>
+                                )}
+
+                                   {config.activeEngines?.includes('mor_institute') ? (
+        <div className="space-y-3">
+            {/* בחירת מסלול - מור */}
+            <div className="flex gap-2 p-1 bg-gray-100 rounded-xl mb-2">
+                <button 
+                                                    onClick={() => {
+                                                        const updated = {...config, morSettings: {...config.morSettings, useManualPath: false}, isTemplateActive: false};
+                                                        setConfig(updated); handleAutoSave(updated);
+                                                    }}
+                                                    className={`flex-1 py-1 text-xs font-bold rounded-lg transition-all ${!config.morSettings?.useManualPath ? 'bg-white shadow-sm text-teal-700' : 'text-gray-500'}`}
+                                                >חיפוש חופשי</button>
+                                                <button 
+                                                    onClick={() => {
+                                                        const updated = {...config, morSettings: {...config.morSettings, useManualPath: true}, isTemplateActive: false};
+                                                        setConfig(updated); handleAutoSave(updated);
+                                                    }}
+                                                    className={`flex-1 py-1 text-xs font-bold rounded-lg transition-all ${config.morSettings?.useManualPath ? 'bg-white shadow-sm text-teal-700' : 'text-gray-500'}`}
+                                                >ניווט קטגוריות</button>
+            </div>
+
+            {!config.morSettings?.useManualPath ? (
+                <div className="space-y-0.5">
+                    <label className="text-base font-bold text-gray-500 pr-1">שם הבדיקה (כפי שמופיע באתר)</label>
+                   <input 
+                                                        type="text"
+                                                        value={config.morSettings?.targetReferral || ""}
+                                                        onChange={(e) => {
+                                                            const updated = {...config, morSettings: {...config.morSettings, targetReferral: e.target.value}, isTemplateActive: false};
+                                                            setConfig(updated); handleAutoSave(updated);
+                                                        }}
+                                                        placeholder="למשל: מבחן מאמץ"
+                                                        className="w-full px-3 py-2 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-[#00a896] bg-white"
+                                                    />
+                </div>
+            ) : (
+                <>
+                    <div className="space-y-0.5">
+                        <label className="text-base font-bold text-gray-500 pr-1">סוג ביטוח</label>
+                        <select 
+                                                            value={config.morSettings?.insuranceType || "כללית"}
+                                                            onChange={(e) => {
+                                                                const updated = {...config, morSettings: {...config.morSettings, insuranceType: e.target.value}, isTemplateActive: false};
+                                                                setConfig(updated); handleAutoSave(updated);
+                                                            }}
+                                                            className="w-full px-3 py-2 text-lg font-bold border border-gray-200 rounded-xl bg-white outline-none focus:border-[#00a896]"
+                                                        >
+                                                            <option>כללית</option>
+                                                            <option>כללית פלטינום או מושלם</option>
+                                                            <option>לקוח פרטי</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="space-y-0.5">
+                                                        <label className="text-base font-bold text-gray-500 pr-1">תחום בדיקה</label>
+                                                        <select 
+                                                            value={config.morSettings?.category || ""}
+                                                            onChange={(e) => {
+                                                                const updated = {...config, morSettings: {...config.morSettings, category: e.target.value}, isTemplateActive: false};
+                                                                setConfig(updated); handleAutoSave(updated);
+                                                            }}
+                                                            className="w-full px-3 py-2 text-lg font-bold border border-gray-200 rounded-xl bg-white outline-none focus:border-[#00a896]"
+                                                        >
+                            <option value="">בחר תחום...</option>
+                            {["מטיילים", "דימות:  אולטרסאונד / CT", "עיניים", "בריאות השד", "לב וכלי דם", "הולטרים", "ריאות", "EMG", "תינוקות פרקי ירכיים", "צפיפות עצם"].map(cat => (
+                                <option key={cat}>{cat}</option>
+                            ))}
+                        </select>
+                    </div>
+                </>
+            )}
+
+            <div className="space-y-1.5 mt-2">
+                <label className="text-base font-bold text-gray-500 pr-1">אזורי סריקה (לפי סדר עדיפות)</label>
+<MultiSelectDropdown 
+                                                    options={["מרכז", "ירושלים והסביבה", "דרום", "צפון"]} 
+                                                    selected={config.morSettings?.areaPriority || []} 
+                                                    onChange={(areas) => {
+                                                        const updated = {...config, morSettings: {...config.morSettings, areaPriority: areas}, isTemplateActive: false};
+                                                        setConfig(updated); handleAutoSave(updated);
+                                                    }} 
+                                                    placeholder="בחר אזורים לסריקה..." 
+                                                    focusClass="focus:ring-[#00a896]" 
+                                                />
+                <p className="text-[11px] text-teal-600 font-bold pr-1 italic leading-tight">
+                    * המספר בעיגול מציין את סדר העדיפות שבו הבוט יסרוק את האזורים.
+                </p>
+            </div>
+        </div>
+) : (
+    /* רופאים מועדפים - מופיע רק בכללית */
+    <div className="space-y-0.5">
+        <label className="text-base font-bold text-gray-500 pr-1">רופאים מועדפים</label>
+        <MultiSelectDropdown 
+            options={getDoctorsList()} 
+            selected={config.selectedDoctors} 
+            onChange={handleDoctorsChange} 
+            placeholder="חפש רופאים..." 
+            isObject 
+            focusClass="focus:ring-[#00a896]" 
+        />
+    </div>
+)}
+                                    
+                                    {!config.activeEngines?.includes('mor_institute') && (
+                                        <div className="flex items-center justify-between bg-white p-2 rounded-2xl border border-teal-100">
+                                            <label className="flex items-center gap-2 text-lg font-bold text-gray-600 cursor-pointer leading-none">
+                                                <input type="checkbox" checked={config.includeSurrounding} onChange={(e) => setConfig({...config, includeSurrounding: e.target.checked})} className="w-5 h-5 accent-[#00a896]" /> 
+                                                כולל יישובים בסביבה
+                                            </label>
+                                            <div className="flex gap-2">
+                                                {['הכל', 'כללית', 'מושלם'].map(t => (
+                                                    <label key={t} className="flex items-center gap-1.5 cursor-pointer text-base font-bold text-gray-500 leading-none">
+                                                        <input type="radio" name="ins" value={t} checked={config.insuranceType === t} onChange={handleChange} className="w-4 h-4 accent-[#00a896]" /> 
+                                                        {t}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
           </section>
                         
