@@ -238,17 +238,80 @@ async function runClalit(page) {
             const isDefaultLogin = !scanHistory[loginKey];
 
             updateLiveProgress(`🔐 מתחבר בשיטת ${loginMode === 'sms' ? 'SMS' : 'סיסמה'} ${isDefaultLogin ? '*' : ''}`, estimatedLoginTime);
-            if (loginMode === 'sms') {
-                // --- התחברות עם SMS ---
-                const smsSent = await loginWithSMS(page, config);
-                if (smsSent) updateLiveProgress("📱 ממתין שתזין קוד SMS בדפדפן...");
+         if (loginMode === 'sms') {
+                // --- מנגנון כניסה SMS משופר (כולל זיהוי אוטומטי וריענון במקרה של קפצ'ה שגויה) ---
+                let smsSent = false;
+                for (let captchaAttempt = 1; captchaAttempt <= 2; captchaAttempt++) {
+                    smsSent = await loginWithSMS(page, config);
+                    if (smsSent) break;
+                    console.log(`⚠️ ניסיון שליחת SMS נכשל, מרענן דף ומנסה שוב... (${captchaAttempt}/2)`);
+                    await page.reload({ waitUntil: 'networkidle' });
+                    await page.waitForTimeout(3000);
+                }
+
                 if (!smsSent) {
-                    console.log('❌ שליחת SMS נכשלה. עוצר סבב זה.');
+                    console.log('❌ שליחת SMS נכשלה אחרי כל הניסיונות. עוצר סבב זה.');
                     return;
                 }
-                // ממתין שהמשתמש יזין את קוד ה-SMS בדפדפן (עד 5 דקות)
-                console.log('⏳ [SMS-LOGIN] ממתין שהמשתמש יזין את קוד ה-SMS בדפדפן...');
-                await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
+
+                console.log('⏳ [SMS-LOGIN] ממתין לקוד אימות (אוטומטי מה-SMS או הזנה ידנית)...');
+                updateLiveProgress("📱 ממתין לקוד (אוטומטי או ידני)");
+
+                const timeoutMs = 300000; // 5 דקות
+                const startTime = Date.now();
+                let loginSuccess = false;
+                
+                const otpInput = '#ctl00_cphBody_txtClientOTP';
+                const otpSubmitBtn = '#ctl00_cphBody_btnContinue_lnkSubButton'; 
+
+                while (Date.now() - startTime < timeoutMs) {
+                    const isLoggedInManual = await page.$('text="שירותי האון־ליין"').catch(() => null);
+                    if (isLoggedInManual) {
+                        loginSuccess = true;
+                        break;
+                    }
+
+                    try {
+                        if (fs.existsSync('./config.json')) {
+                            const currentCfg = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                            const isFreshFile = currentCfg.otpReceivedAt && (Date.now() - currentCfg.otpReceivedAt < 300000);
+                            
+                            if (isFreshFile && currentCfg.lastOtp && currentCfg.lastOtp.length >= 4) {
+                                const inputEl = await page.$(otpInput);
+                                if (inputEl && await inputEl.isVisible()) {
+                                    console.log(`🤖 [AUTO-LOGIN] מזין קוד אוטומטי: ${currentCfg.lastOtp}`);
+                                    await page.click(otpInput, { clickCount: 3 });
+                                    await page.keyboard.press('Backspace');
+                                    await page.type(otpInput, currentCfg.lastOtp, { delay: 150 });
+                                    await page.waitForTimeout(1000);
+                                    
+                                    const submitBtn = await page.$(otpSubmitBtn);
+                                    if (submitBtn) await submitBtn.click();
+                                    else await page.keyboard.press('Enter');
+                                    
+                                    currentCfg.lastOtp = "";
+                                    fs.writeFileSync('./config.json', JSON.stringify(currentCfg, null, 2));
+                                }
+                            }
+                        }
+                    } catch (e) { }
+
+                    try {
+                        const template = await SearchTemplate.findOne({ email: config.email }).catch(() => null);
+                        if (template?.lastOtp && (new Date() - template.otpReceivedAt < 120000)) {
+                            if (await page.$(otpInput)) {
+                                await page.fill(otpInput, template.lastOtp);
+                                await page.keyboard.press('Enter');
+                            }
+                        }
+                    } catch (e) {}
+
+                    await new Promise(r => setTimeout(r, 3000));
+                }
+
+                if (!loginSuccess) {
+                    throw new Error("❌ זמן ההמתנה להתחברות הסתיים ללא הצלחה.");
+                }
                 console.log('✅ [SMS-LOGIN] הכניסה הצליחה!');
 
             } else {
@@ -257,11 +320,12 @@ async function runClalit(page) {
                 try {
                     await page.waitForSelector(passTabBtn, { state: 'visible', timeout: 1500 });
                     await page.click(passTabBtn);
-await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
+                    await page.waitForSelector('#ctl00_cphBody__loginView_tbUserId', { state: 'visible', timeout: 5000 });
                 } catch (tabErr) {
                     console.log("⚠️ לשונית סיסמה לא נמצאה או שכבר פעילה.");
                 }
 
+                const idField = '#ctl00_cphBody__loginView_tbUserId';
                 const codeField = '#ctl00_cphBody__loginView_tbUserName';
                 const passField = '#ctl00_cphBody__loginView_tbPassword';
                 
@@ -290,10 +354,10 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
             console.log("⚡ כבר מחובר! מדלג ישירות לתוך המערכת...");
         }
 
-    console.log("--------------------------------------------------");
+        console.log("--------------------------------------------------");
         console.log("ממתין לסיום תהליך ההתחברות...");
         await page.waitForSelector('text="שירותי האון־ליין"', { timeout: 300000 });
-        // מדידת זמן התחברות ועדכון קובץ הלמידה
+        
         if (typeof loginStartTime !== 'undefined') {
             const loginDuration = Math.floor((Date.now() - loginStartTime) / 1000);
             const currentLoginKey = `login_method_${config.loginMode || 'password'}`;
@@ -303,16 +367,14 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
             } else {
                 scanHistory[currentLoginKey] = loginDuration;
             }
-            try {
-                fs.writeFileSync(learningPath, JSON.stringify(scanHistory, null, 2));
-            } catch (err) {}
+            try { fs.writeFileSync(learningPath, JSON.stringify(scanHistory, null, 2)); } catch (err) {}
         }
 
         updateLiveProgress("✅ תהליך הכניסה למערכת הושלם בהצלחה!");
-        await page.waitForTimeout(3000); // השהיה כדי שהמשתמש יספיק לראות את הודעת ההצלחה
+        await page.waitForTimeout(3000); 
         updateLiveProgress("🏗️ נערך לחיפוש של התחומים בערים שהזנת...");
 
-        // 1. התיקון לפופאפ (לחיצה אגרסיבית עוקפת שכבות)
+        // פתרון iFrame וקפיצות פופאפים
         await page.evaluate(() => {
             setInterval(() => {
                 const continueBtn = document.querySelector('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lnkSubButton');
@@ -323,14 +385,10 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                 }
                 const allLinks = Array.from(document.querySelectorAll('a.lnkSubButton, button'));
                 const backupBtn = allLinks.find(el => el.innerText && el.innerText.includes('המשך'));
-                if (backupBtn && backupBtn.offsetParent !== null) {
-                    console.log('🚨 [POPUP-FIX] נמצא כפתור "המשך" לפי טקסט - מבצע לחיצה...');
-                    backupBtn.click();
-                }
+                if (backupBtn && backupBtn.offsetParent !== null) backupBtn.click();
             }, 3000);
         });
 
-        // פונקציית עזר לאיתור אלמנטים (גם בתוך iframe)
         async function getTargetElement(selector) {
             if (await page.$(selector).catch(() => null)) return page;
             for (const frame of page.frames()) {
@@ -342,7 +400,6 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
         const groupId = config.selectedGroup || '32';
         const specId = config.selectedSpecialization || groupId;
         
-        // 2. הבדיקה: האם אנחנו כבר בדף החיפוש הפעיל?
         let target = await getTargetElement('#SelectedCityName');
 
         if (target) {
@@ -350,7 +407,7 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
         } else {
             console.log("🔄 [STATE] סבב ראשון: מתחיל תהליך בחירת פרופיל וניווט...");
 
-// מעבר לתיק בן משפחה (משותף לשני המסלולים)
+            // מעבר לתיק בן משפחה
             if (config.familyMember && config.familyMember.trim() !== '') {
                 console.log(`👨‍👩‍👧 מנסה לעבור לתיק של בת המשפחה: ${config.familyMember}`);
                 updateLiveProgress(`👨‍👩‍👧 עובר לתיק של ${config.familyMember.trim()}...`);
@@ -367,71 +424,50 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
 
             const engines = config.activeEngines || ['clalit_specialist'];
 
-           // === מסלול מכון מור - שמירה מפורטת ל-DB ועדכון דשבורד ===
             if (engines.includes('mor_institute')) {
                 const morResult = await navigateMor(page, config);
                 if (morResult) {
-                    // 1. פורמט מותאם ל"קוביה הצהובה" (התאריך מופיע בנפרד מהסניף)
                     const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
                     updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
                     
-                    // 2. שמירה מפורטת ל-Database לשדות הייעודיים
                     try {
                         await MorSearchTemplate.updateOne(
                             { userId: config.userId },
                             { 
                                 $set: { 
-                                    lastBestFound: foundStr,
-                                    bestBranch: morResult.branch, 
-                                    bestDate: morResult.date,      
-                                    bestTime: morResult.time,      
+                                    lastBestFound: foundStr, bestBranch: morResult.branch, 
+                                    bestDate: morResult.date, bestTime: morResult.time,     
                                     provider: 'MACHON_MOR'
                                 } 
-                            },
-                            { upsert: true }
+                            }, { upsert: true }
                         );
-                        console.log(`💾 [DB-SYNC] התור ב-${morResult.branch} נשמר בהצלחה בטבלת מור.`);
-                    } catch (dbErr) {
-                        console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message);
-                    }
+                    } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
 
-                    // 3. עדכון קובץ ה-Config לסנכרון מיידי של הדשבורד
                     const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     currentConfig.lastFoundDate = foundStr;
                     fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
 
-                    // 4. שליחת מייל התראה
                     try {
-                        await sendEmailNotification(
-                            `מכון מור - ${morResult.branch}`, 
-                            morResult.area, 
-                            `${morResult.date} בשעה ${morResult.time}`, 
-                            config.email
-                        );
-                    } catch (e) {
-                        console.error("⚠️ שגיאה בשליחת מייל מור:", e.message);
-                    }
+                        await sendEmailNotification(`מכון מור - ${morResult.branch}`, morResult.area, `${morResult.date} בשעה ${morResult.time}`, config.email);
+                    } catch (e) { console.error("⚠️ שגיאה בשליחת מייל מור:", e.message); }
                 }
                 return; 
             }
-            // === מסלול בתי חולים (בדיקות) ===
+            
             if (engines.includes('clalit_hospital')) {
-                // נחלץ רק את העיר הראשונה מהקונפיג כדי להעביר לניווט (אם יש), אחרת ברירת מחדל
                 const hospitalToSearch = (config.selectedCities && config.selectedCities.length > 0) ? config.selectedCities[0] : 'בילינסון';
-                
                 const navResult = await navigateHospitalSearch(page, config, hospitalToSearch);
                 if (navResult.error === 'SYSTEM_CONFIG_ERROR') {
                     const errorMsg = `<span style="color:red; font-weight:bold;">⚠️ שגיאת מערכת: לא ניתן לזמן תור כרגע</span>`;
                     const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     currentConfig.lastFoundDate = errorMsg;
                     fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
-                    // במקרה של שגיאה כזו באתר כללית, אין טעם להמשיך בלולאה הזו
                     return; 
                 }
                 target = page;
             } 
-            // === מסלול רפואה יועצת (הקוד המקורי) ===
             else {
+                // מסלול רפואה יועצת
                 await page.click('text="שירותי האון־ליין"').catch(() => {});
                 await page.waitForTimeout(2500);
                 await page.click('a[title="זימון תורים"]').catch(() => {});
@@ -447,19 +483,15 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                     await target.waitForSelector('#SelectedGroupCode', { timeout: 20000 });
                     console.log(`🔍 מפעיל חיפוש: קבוצה ${groupId}, מקצוע ${specId}`);
                     
-                    // 1. בחירת תחום (Group)
                     await target.selectOption('#SelectedGroupCode', groupId);
                     await page.waitForTimeout(3000);
 
-                    // בדיקה האם הפופ-אפ קפץ כבר אחרי בחירת התחום
                     const checkReferral = async (stepName) => {
                         const isMissing = await target.evaluate(() => {
                             const activeModals = Array.from(document.querySelectorAll('#messageView, .ui-dialog, .modal-dialog, #divMessage, .messgeBox'));
                             for (const modal of activeModals) {
                                 const isVisible = modal.offsetParent !== null && window.getComputedStyle(modal).display !== 'none';
-                                if (isVisible && modal.innerText && modal.innerText.includes('נדרשת הפניה')) {
-                                    return true; 
-                                }
+                                if (isVisible && modal.innerText && modal.innerText.includes('נדרשת הפניה')) return true; 
                             }
                             return false;
                         });
@@ -480,18 +512,12 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                                 if (mongoose.connection.readyState === 1) {
                                     await SearchTemplate.updateOne(
                                         { userId: config.userId, selectedGroup: config.selectedGroup },
-                                        { 
-                                            $set: { lastBestFound: formattedError },
-                                            $setOnInsert: { templateName: `התראת חסימה - ${Date.now()}` }
-                                        },
+                                        { $set: { lastBestFound: formattedError }, $setOnInsert: { templateName: `התראת חסימה - ${Date.now()}` } },
                                         { upsert: true }
                                     ).catch((dbErr) => console.log('⚠️ [DB-WARN] שגיאה בשמירת התראת הפניה:', dbErr.message));
                                 }
-
                                 console.log('🛑 [STOP-SEARCH] חסרה הפניה. עוצר סריקה לסבב זה.');
-                            } catch (err) {
-                                console.error("Error in detection handler:", err.message); 
-                            }
+                            } catch (err) { console.error("Error in detection handler:", err.message); }
                             return true; 
                         }
                         return false;
@@ -499,7 +525,6 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
 
                     if (await checkReferral("בחירת תחום")) return; 
 
-                    // 2. בחירת מקצוע (Specialization)
                     try {
                         await target.selectOption('#SelectedSpecializationCode', specId);
                         await page.waitForTimeout(2000);
@@ -512,19 +537,14 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                     console.log("❌ לא נמצא כפתור 'ProfessionVisitButton', מנסה להמשיך...");
                     target = page; 
                 }
-            } // סוף ה-else של מסלול רפואה יועצת
-        } // סוף ה-else של "האם אנחנו כבר בדף החיפוש"
+            }
+        }
 
         const sentInThisRun = new Set();
-        
-        const activeDoctorsNames = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0)
-            ? config.selectedDoctorNames
-            : [];
-
+        const activeDoctorsNames = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0) ? config.selectedDoctorNames : [];
         let citiesToSearch = config.selectedCities || [];
         const engines = config.activeEngines || ['clalit_specialist'];
 
-        // אם מנוע בתי חולים פעיל ואין ערים, נשתמש בברירת מחדל של בית חולים
         if (engines.includes('clalit_hospital') && citiesToSearch.length === 0) {
             citiesToSearch = ['בילינסון']; 
         } else if (citiesToSearch.length === 0 && activeDoctorsNames.length === 0) {
@@ -533,47 +553,31 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
 
         const searchItems = activeDoctorsNames.length > 0 ? activeDoctorsNames : citiesToSearch;
         const isDoctorSearch = activeDoctorsNames.length > 0;
+        const activeDoctorsFilter = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0) ? config.selectedDoctorNames : [];
 
-        const activeDoctorsFilter = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0)
-            ? config.selectedDoctorNames
-            : [];
+        const getSearchKey = (item) => `${config.selectedGroup}_${config.selectedSpecialization}_${item}`;
+        const DEFAULT_TIME_PER_ITEM = 45; 
+        let currentIndex = 0;
+        const totalItems = searchItems.length;
+        const itemType = isDoctorSearch ? 'רופאים' : 'ערים';
 
-       const getSearchKey = (item) => `${config.selectedGroup}_${config.selectedSpecialization}_${item}`;
-       const DEFAULT_TIME_PER_ITEM = 45; // שניות כברירת מחדל
-
-       let currentIndex = 0;
-       const totalItems = searchItems.length;
-       const itemType = isDoctorSearch ? 'רופאים' : 'ערים';
-
-       for (const item of searchItems) {
+        for (const item of searchItems) {
             currentIndex++;
-            const startTime = Date.now(); // תחילת מדידת זמן לפריט נוכחי
-            
-            // חישוב זמן נותר על בסיס היסטוריה
+            const startTime = Date.now(); 
             let remainingSeconds = 0;
             let isDefault = false;
 
             for (let i = currentIndex - 1; i < searchItems.length; i++) {
                 const key = getSearchKey(searchItems[i]);
-                if (scanHistory[key]) {
-                    remainingSeconds += scanHistory[key];
-                } else {
-                    remainingSeconds += DEFAULT_TIME_PER_ITEM;
-                    isDefault = true;
-                }
+                if (scanHistory[key]) remainingSeconds += scanHistory[key];
+                else { remainingSeconds += DEFAULT_TIME_PER_ITEM; isDefault = true; }
             }
 
             const minutes = Math.floor(remainingSeconds / 60);
             const seconds = Math.floor(remainingSeconds % 60);
-            const timeStr = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-            const estimationMsg = isDefault ? `(זמן משוער: ${timeStr}*)` : `(זמן נותר: ${timeStr})`;
-
-       // חיווי אחיד הכולל את מספר העמוד (1) כבר בתחילת הסריקה של היעד
             updateLiveProgress(`📄 עמוד 1 | ${item} (${currentIndex} מתוך ${totalItems} ${itemType})`, remainingSeconds);
-            // בדיקה האם המשתמש לחץ על 'עצור' בדשבורד לפני שעוברים לעיר/רופא הבא
+            
             const stopCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-            // עוצר רק אם המשתמש לחץ "עצור" (גם הלולאה כבויה וגם הסטטוס במנוחה)
-            // זה מונע עצירה בטעות של כפתור "בדיקה" שבו הלולאה כבויה אבל הסטטוס פעיל
             if (stopCheck.runInLoop === false && stopCheck.botStatus === 'idle') {
                 console.log("🛑 זיהיתי פקודת עצירה מהדשבורד. מפסיק את הסבב הנוכחי...");
                 break; 
@@ -581,9 +585,9 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
 
             console.log(`\n===================================`);
             console.log(`🔍 מתחיל חיפוש עבור ${isDoctorSearch ? 'רופא' : 'עיר'}: ${item}`);
+            
             if (isDoctorSearch) {
                 console.log(`🔎 מזהה שדה 'שם הרופא' ומזין: ${item}...`);
-                
                 const dynamicDocInputId = await target.evaluate(() => {
                     const tds = Array.from(document.querySelectorAll('td.title'));
                     const docTd = tds.find(td => td.textContent && td.textContent.includes('שם הרופא/ה'));
@@ -609,35 +613,34 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                 await target.type(dynamicDocInputId, item, { delay: 150 });
 
             } else {
+                // התיקון הקריטי: בחירת עיר מתוך רשימה נפתחת (Autocomplete)
                 const cityInput = '#SelectedCityName';
-                
                 await target.click(cityInput, { clickCount: 3 });
-await page.keyboard.press('Backspace');
-await page.waitForTimeout(300);
+                await page.keyboard.press('Backspace');
+                await page.waitForTimeout(300);
 
                 console.log(`🔎 מזין עיר: ${item}...`);
                 await target.type(cityInput, item, { delay: 250 });
 
-                await target.waitForSelector('li.ui-menu-item', { state: 'visible', timeout: 15000 });
-                await page.waitForTimeout(1000);
-
-                const clicked = await target.evaluate((cityName) => {
-                    const items = Array.from(document.querySelectorAll('li.ui-menu-item'));
-                    const match = items.find(i => i.innerText.trim() === cityName);
-                    if (match) {
-                        match.click();
-                        return true;
-                    }
-                    return false;
-                }, item);
-
-                if (!clicked) {
-                    console.log(`⚠️ לא נמצאה התאמה מדויקת ל-'${item}' ברשימה, מנסה Enter.`);
+                // המתנה לרשימה ובחירה מתוכה
+                await page.waitForTimeout(2500); 
+                const menuItemSelector = `li.ui-menu-item:has-text("${item}")`;
+                const menuItem = await getTargetElement(menuItemSelector).catch(() => null);
+                
+                if (menuItem) {
+                    console.log(`🖱️ בוחר את '${item}' מתוך הרשימה שנפתחה...`);
+                    const itemInFrame = await menuItem.$(menuItemSelector);
+                    if (itemInFrame) await itemInFrame.click();
+                    else await page.click(menuItemSelector);
+                } else {
+                    console.log(`⚠️ לא זוהתה רשימה עבור '${item}', מבצע בחירה דרך מקלדת (ArrowDown + Enter).`);
+                    await page.keyboard.press('ArrowDown');
+                    await page.waitForTimeout(500);
                     await page.keyboard.press('Enter');
                 }
             }
 
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(1500);
             await target.click('#searchBtnSpec');
             await page.waitForTimeout(8000); 
 
@@ -672,33 +675,22 @@ await page.waitForTimeout(300);
             let pageNum = 1;
 
             while (hasNextPage) {
-            // חיווי ברור המציג את העמוד הנוכחי ואת התקדמות יעדי הסריקה ללא כפילות זמן
                 updateLiveProgress(`📄 עמוד ${pageNum} | ${item} (${currentIndex} מתוך ${totalItems} ${itemType})`, remainingSeconds);
                 console.log(`📄 סורק דף תוצאות מספר ${pageNum} עבור ${item}...`);
-              //  await page.screenshot({ path: `debug_${item}_page_${pageNum}.png` });
                 console.log(`📸 שמרתי צילום מסך בתיקייה הראשית: debug_${item}_page_${pageNum}.png`);
 
                 const rawDataFromPage = await target.evaluate((searchedItem) => {
                     return Array.from(document.querySelectorAll('.diaryDoctor')).map(card => {
                         const addressText = card.querySelector('.clinicAddress')?.innerText || '';
                         const detailsText = card.querySelector('.clinicDetails')?.innerText || '';
-                        
                         let actualCity = '';
                         
-                        // 1. ניסיון חילוץ מהכתובת הרגילה (למשל: "רחוב, עיר")
                         const addrParts = addressText.split(',').map(p => p.trim());
-                        if (addrParts.length >= 2) {
-                            actualCity = addrParts[addrParts.length - 1];
-                        } 
-                        // 2. ניסיון חילוץ מהאלמנט החדש ששלחת (למשל: "כתובת: רחוב, עיר")
+                        if (addrParts.length >= 2) actualCity = addrParts[addrParts.length - 1];
                         else if (detailsText.includes(',')) {
                             const detailParts = detailsText.split(',').map(p => p.trim());
                             actualCity = detailParts[detailParts.length - 1];
-                        }
-                        // 3. גיבוי - שימוש בערך שחיפשנו (item) אם האתר לא הציג כלום
-                        else {
-                            actualCity = searchedItem || 'עיר לא צוינה';
-                        }
+                        } else actualCity = searchedItem || 'עיר לא צוינה';
 
                         return {
                             docNameRaw: card.querySelector('.doctorName')?.innerText || 'לא נמצא שם',
@@ -706,7 +698,7 @@ await page.waitForTimeout(300);
                             actualCity: actualCity
                         };
                     });
-                }, item); // העברת item לתוך ה-evaluate
+                }, item); 
 
                 console.log("\n--- תחילת הדפסת דיבוג: מה הבוט רואה כרגע בדף ---");
                 const foundInPage = [];
@@ -715,33 +707,28 @@ await page.waitForTimeout(300);
                     console.log(`* קורא כרטיסייה: שם: [${appt.docNameRaw.trim()}], תאריך: [${appt.dateTextRaw.trim()}]`);
                     
                     const match = appt.dateTextRaw.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
-                    
                     if (!match) {
                         console.log(`   -> דילגתי: לא הצלחתי למצוא מבנה של תאריך מלא בטקסט הזה.`);
                         continue;
                     }
                     
                    const isoDate = `${match[3]}-${match[2]}-${match[1]}`;
-                    
-                    // 1. בדיקה האם התאריך כבר עבר (הגנה מתור ישן)
-                    const todayStr = new Date().toISOString().split('T')[0];
+                   const todayStr = new Date().toISOString().split('T')[0];
                     if (isoDate < todayStr) {
                         console.log(`   -> דילגתי: התאריך ${isoDate} כבר עבר (היום ${todayStr}).`);
                         continue;
                     }
 
-                    // 2. בדיקה האם התאריך בטווח היעד שהוגדר
                     const inRange = !config.endDate || (isoDate <= config.endDate);
                     if (!inRange) {
                         console.log(`   -> דילגתי: התאריך ${isoDate} מאוחר מתאריך היעד.`);
                         continue;
                     }
                     
-                    // הדפסת דיבוג: מה יש ברשימת המועדפים ומה מצאנו באתר
                     console.log(`    [DEBUG] בודק רופא מהאתר: "${appt.docNameRaw}"`);
                     console.log(`    [DEBUG] מועדפים מהדשבורד: ${JSON.stringify(activeDoctorsFilter)}`);
 
-                    let matchedDashboardName = appt.docNameRaw.trim(); // ברירת מחדל
+                    let matchedDashboardName = appt.docNameRaw.trim(); 
                     let isPreferred = activeDoctorsFilter.length === 0;
 
                     if (activeDoctorsFilter.length > 0) {
@@ -749,14 +736,10 @@ await page.waitForTimeout(300);
                             const cleanPref = prefName.replace(/ד"ר|דר'|\(כללית\)|\(מושלם\)/g, '').replace(/[()]/g, '').trim();
                             const prefWords = cleanPref.split(/\s+/).filter(word => word.length > 1);
                             const cleanSiteName = appt.docNameRaw.replace(/ד"ר|דר'/g, '').trim();
-                            
-                            // פונקציית עזר שמתעלמת מהאותיות י' ו-ו' כדי לפתור הבדלי כתיב מלא/חסר
                             const normalizeHeb = (str) => str.replace(/[יו]/g, '');
                             
-                            // משווים כעת את הגרסאות "הנקיות" ללא אותיות אהו"י
                             if (prefWords.every(word => normalizeHeb(cleanSiteName).includes(normalizeHeb(word)))) {
                                 isPreferred = true;
-                                // קסם: מעדכנים את השם לזה שמוגדר בדשבורד כדי שהמערכת תזהה אותו!
                                 matchedDashboardName = prefName; 
                                 break;
                             }
@@ -769,7 +752,6 @@ await page.waitForTimeout(300);
                     }
 
                     let finalCity = appt.actualCity;
-                    // פתרון באג הכפילות: מונע את זליגת שם הרופא לשדה של העיר
                     if (isDoctorSearch && finalCity === item) {
                         finalCity = (config.selectedCities && config.selectedCities.length > 0) ? config.selectedCities[0] : 'עיר לא צוינה';
                     }
@@ -782,12 +764,7 @@ await page.waitForTimeout(300);
                     const cleanDate = match[0];
                     console.log(`   -> ✅ התור עבר את כל הסינונים וישלח למייל!`);
                     
-                    // מעביר לזיכרון את השם המדויק מהדשבורד ואת העיר הנקייה
-                    foundInPage.push({ 
-                        doctor: matchedDashboardName, 
-                        dateStr: cleanDate, 
-                        actualCity: finalCity 
-                    });
+                    foundInPage.push({ doctor: matchedDashboardName, dateStr: cleanDate, actualCity: finalCity });
                 }
                 console.log("--- סוף הדפסת דיבוג ---\n");
 
@@ -799,15 +776,11 @@ await page.waitForTimeout(300);
                             const parts = d.split(/[\.\/]/);
                             return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
                         };
-                        
-                        if (!bestApptsPerDoctor[appt.doctor]) {
-                            bestApptsPerDoctor[appt.doctor] = appt;
-                        } else {
+                        if (!bestApptsPerDoctor[appt.doctor]) bestApptsPerDoctor[appt.doctor] = appt;
+                        else {
                             const currentBestDate = parseDate(bestApptsPerDoctor[appt.doctor].dateStr);
                             const newDate = parseDate(appt.dateStr);
-                            if (newDate < currentBestDate) {
-                                bestApptsPerDoctor[appt.doctor] = appt;
-                            }
+                            if (newDate < currentBestDate) bestApptsPerDoctor[appt.doctor] = appt;
                         }
                     }
 
@@ -817,17 +790,12 @@ await page.waitForTimeout(300);
                         
                       if (!sentInThisRun.has(key)) {
                                     try {
-                                        // בדיקה: האם התור טוב יותר מהזיכרון הפנימי או שהבאנר הצהוב ריק?
                                         const configCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                                         const isBannerEmpty = !configCheck.lastFoundDate;
                                         const isBetter = isBetterAppointment(bestAppt.doctor, bestAppt.dateStr);
 
                                         if (isBetter || isBannerEmpty) {
-                                            
-                                           // 1. חילוץ שם נקי ללא סוגריים לפני כל פעולת שמירה או לוג
                                             const cleanDoctorName = bestAppt.doctor.split('(')[0].trim();
-
-                                            // 2. עדכון הזיכרון המקומי עם השם הנקי והעיר הנכונה
                                             updateMemory(cleanDoctorName, bestAppt.dateStr, bestAppt.actualCity);
 
                                             try {
@@ -836,70 +804,55 @@ await page.waitForTimeout(300);
                                                 if (mongoose.connection.readyState === 0) await mongoose.connect(process.env.MONGODB_URI);
 
                                                 const currentInDB = await SearchTemplate.findOne({ userId: config.userId, selectedGroup: config.selectedGroup });
-let isSoFarBest = true;
+                                                let isSoFarBest = true;
 
-if (currentInDB && currentInDB.lastBestFound) {
-    const dbMatch = currentInDB.lastBestFound.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
-    if (dbMatch) {
-        const parseD = (d) => {
-            const parts = d.split(/[\.\/]/);
-            return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
-        };
-        // השוואה כרונולוגית אבסולוטית
-        if (parseD(bestAppt.dateStr) >= parseD(dbMatch[0])) {
-            isSoFarBest = false;
-        }
-    }
-}
+                                                if (currentInDB && currentInDB.lastBestFound) {
+                                                    const dbMatch = currentInDB.lastBestFound.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/);
+                                                    if (dbMatch) {
+                                                        const parseD = (d) => {
+                                                            const parts = d.split(/[\.\/]/);
+                                                            return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+                                                        };
+                                                        if (parseD(bestAppt.dateStr) >= parseD(dbMatch[0])) isSoFarBest = false;
+                                                    }
+                                                }
 
                                                 if (isSoFarBest) {
-    const cleanDoctorName = bestAppt.doctor.split('(')[0].trim();
-    const foundStr = `${bestAppt.dateStr} - ${cleanDoctorName} (${bestAppt.actualCity})`;
-    
-    // א. עדכון מסד הנתונים (MongoDB)
-    await SearchTemplate.updateOne(
-        { userId: config.userId, selectedGroup: config.selectedGroup },
-        { $set: { lastBestFound: foundStr } },
-        { upsert: true }
-    );
+                                                    const cleanDoctorName = bestAppt.doctor.split('(')[0].trim();
+                                                    const foundStr = `${bestAppt.dateStr} - ${cleanDoctorName} (${bestAppt.actualCity})`;
+                                                    
+                                                    await SearchTemplate.updateOne(
+                                                        { userId: config.userId, selectedGroup: config.selectedGroup },
+                                                        { $set: { lastBestFound: foundStr } },
+                                                        { upsert: true }
+                                                    );
 
-    // ב. עדכון קובץ הקונפיגורציה המקומי (לסנכרון מיידי של הדשבורד)
-    const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-    currentConfig.lastFoundDate = foundStr;
-    currentConfig.lastBestFound = foundStr;
-    if (!currentConfig.doctorDates) currentConfig.doctorDates = {};
-    currentConfig.doctorDates[cleanDoctorName] = bestAppt.dateStr;
-    fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+                                                    const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                                                    currentConfig.lastFoundDate = foundStr;
+                                                    currentConfig.lastBestFound = foundStr;
+                                                    if (!currentConfig.doctorDates) currentConfig.doctorDates = {};
+                                                    currentConfig.doctorDates[cleanDoctorName] = bestAppt.dateStr;
+                                                    fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
 
-    // ג. עדכון הזיכרון של שליחת המיילים (סנכרון מול sent_appointments.json)
-    updateMemory(cleanDoctorName, bestAppt.dateStr, bestAppt.actualCity);
+                                                    updateMemory(cleanDoctorName, bestAppt.dateStr, bestAppt.actualCity);
+                                                    console.log(`✅ [FULL-SYNC] ה-DB, הקונפיג וקובץ המיילים סונכרנו לתור: ${foundStr}`);
+                                                }
+                                            } catch (dbErr) { console.error("❌ שגיאה בעדכון ה-DB:", dbErr.message); }
 
-    console.log(`✅ [FULL-SYNC] ה-DB, הקונפיג וקובץ המיילים סונכרנו לתור: ${foundStr}`);
-}
-                                            } catch (dbErr) {
-                                                console.error("❌ שגיאה בעדכון ה-DB:", dbErr.message);
-                                            }
-
-                                            // 3. עדכון המנצח של הסבב הנוכחי לצורך שליחת מייל בסיום
                                             const parseD = (d) => new Date(d.split(/[\.\/]/).reverse().join('-')).getTime();
                                             if (!bestApptForEmailThisRun || parseD(bestAppt.dateStr) < parseD(bestApptForEmailThisRun.dateStr)) {
                                                 bestApptForEmailThisRun = bestAppt;
                                             }
 
-                                            // 4. חילוץ שם התחום והפקת דוח
                                             const { CLALIT_GROUPS } = require('./constants/professions');
                                             const groupName = Object.values(CLALIT_GROUPS).find(g => String(g.id) === String(config.selectedGroup))?.name || "כללי";
-                                            
                                             console.log(`📡 [TRACE - clalit.js] שם קבוצה שזוהה: "${groupName}", קוד קבוצה בקונפיג: ${config.selectedGroup}`);
-                                           // 1. סנכרון כל מקורות הנתונים (DB, קונפיגורציה וזיכרון מיילים)
-                                           // עדכון אובייקט הסטטיסטיקה כדי שהדו"ח יציג את המידע הנכון
+                                            
                                             stats.lastFoundDoctor = bestAppt.doctor;
                                             stats.lastFoundDate = bestAppt.dateStr;
                                             stats.lastFoundCity = bestAppt.actualCity;
 
-                                            // שימוש בפונקציה הנכונה שקיימת ב-reportGenerator.js והיא דואגת לשמירה לקובץ
                                             const { createFoundAppointmentReport } = require('../../utils/scheduler/reportGenerator');
-                                            
                                             const report = createFoundAppointmentReport(stats, {
                                                 familyMember: config.familyMember || 'ראשי',
                                                 groupName: groupName,
@@ -909,15 +862,12 @@ if (currentInDB && currentInDB.lastBestFound) {
                                                 dateStr: bestAppt.dateStr,
                                                 searchStartTime: stats.startTime.toLocaleString('he-IL')
                                             });
-                                            
                                             console.log('📊 [REPORT-GENERATED] דוח ביצוע מעודכן נשמר בהצלחה.');
                                         } else {
                                             console.log(`   -> נמצא תור ל-${bestAppt.doctor}, אך הוא אינו מוקדם יותר מהתור השמור בזיכרון.`);
                                         }
                                         sentInThisRun.add(key);
-                                    } catch (generalErr) {
-                                        console.error(`⚠️ שגיאה כללית בעיבוד התור עבור ${bestAppt.doctor}:`, generalErr.message);
-                                    }
+                                    } catch (generalErr) { console.error(`⚠️ שגיאה כללית בעיבוד התור עבור ${bestAppt.doctor}:`, generalErr.message); }
                                 }
                     }
                 }
@@ -929,8 +879,7 @@ if (currentInDB && currentInDB.lastBestFound) {
                     console.log(`➡️ נמצא כפתור 'הבא', עובר לדף ${pageNum + 1}...`);
                     await nextBtn.scrollIntoViewIfNeeded();
                     await nextBtn.click();
-                    pageNum++; // מקדמים את מספר העמוד מיד עם הלחיצה
-              // עדכון חיווי מיידי בעת מעבר עמוד לשמירה על מראה אחיד ונקי
+                    pageNum++; 
                     updateLiveProgress(`📄 עמוד ${pageNum} | ${item} (${currentIndex} מתוך ${totalItems} ${itemType})`, remainingSeconds);
                     await page.waitForTimeout(8000);
                 } else {
@@ -945,23 +894,13 @@ if (currentInDB && currentInDB.lastBestFound) {
                 if (el) el.value = '';
             }, '#SelectedCityName');
             
-            // עדכון נתוני הלמידה של הבוט בתיקיית utils
             const duration = Math.floor((Date.now() - startTime) / 1000);
             const currentItemKey = getSearchKey(item);
             
-            // שימוש בממוצע נע כדי להחליק תנודות
-            if (scanHistory[currentItemKey]) {
-                scanHistory[currentItemKey] = Math.floor((scanHistory[currentItemKey] + duration) / 2);
-            } else {
-                scanHistory[currentItemKey] = duration;
-            }
+            if (scanHistory[currentItemKey]) scanHistory[currentItemKey] = Math.floor((scanHistory[currentItemKey] + duration) / 2);
+            else scanHistory[currentItemKey] = duration;
             
-            try {
-                fs.writeFileSync(learningPath, JSON.stringify(scanHistory, null, 2));
-            } catch (err) {
-                console.error("❌ שגיאה בכתיבת קובץ הלמידה ל-utils:", err.message);
-            }
-
+            try { fs.writeFileSync(learningPath, JSON.stringify(scanHistory, null, 2)); } catch (err) { console.error("❌ שגיאה בכתיבת קובץ הלמידה ל-utils:", err.message); }
             await page.waitForTimeout(2000);
         }
 
@@ -970,9 +909,7 @@ if (currentInDB && currentInDB.lastBestFound) {
         const endConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
         updateLiveProgress(endConfig.runInLoop ? "✅ הסתיימה הבדיקה וממתינים לסבב הבא..." : "✅ הסתיימה הבדיקה.");
 
-       // --- שליחת מייל רק אם נמצא שיפור בסבב הזה לעומת מה שקיים בדשבורד ---
         if (bestApptForEmailThisRun) {
-            // קריאת המצב העדכני של הקונפיגורציה (שמסונכרנת עם ה-DB)
             const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
             const lastDBDateStr = currentConfig.lastFoundDate ? currentConfig.lastFoundDate.match(/(\d{2})[\.\/](\d{2})[\.\/](\d{4})/)?.[0] : null;
 
@@ -993,9 +930,7 @@ if (currentInDB && currentInDB.lastBestFound) {
                         config.email
                     );
                     console.log(`✅ המייל נשלח בהצלחה ליעד: ${config.email || 'ברירת מחדל'}`);
-                } catch (e) { 
-                    console.error("⚠️ שגיאה בשליחת המייל המסכם:", e.message); 
-                }
+                } catch (e) { console.error("⚠️ שגיאה בשליחת המייל המסכם:", e.message); }
             } else {
                 console.log(`ℹ️ הסבב הסתיים. נמצאו תורים, אך אף אחד מהם לא מקדים את התור שכבר מופיע בדשבורד (${lastDBDateStr}). לא נשלח מייל.`);
             }
@@ -1003,7 +938,6 @@ if (currentInDB && currentInDB.lastBestFound) {
    } catch (e) {
         console.error("❌ שגיאה במהלך הבוט:", e.message);
         const currentUrl = page.url();
-        // תיקון: שימוש ב-e במקום error
         if (currentUrl.includes('ResponseSorry') || e.message.includes('Timeout')) {
             console.log('🔄 זוהתה שגיאת סשן – מנקה עוגיות ומתחיל סבב חדש מיד...');
             try {
@@ -1015,7 +949,6 @@ if (currentInDB && currentInDB.lastBestFound) {
         }
     } finally {
         setBotStatus('idle');
-
         const configRefresh = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
         
         if (configRefresh.runInLoop) {
@@ -1035,7 +968,6 @@ if (currentInDB && currentInDB.lastBestFound) {
 
             let elapsed = 0;
             while (elapsed < totalWaitMs) {
-                // בדיקה אם המשתמש לחץ על 'עצור' בדשבורד בזמן ההמתנה
                 const configCheck = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                 if (!configCheck.runInLoop) {
                     console.log("🛑 זוהתה בקשת עצירה מהדשבורד. מפסיק המתנה ויוצא מהלולאה.");
@@ -1051,7 +983,6 @@ if (currentInDB && currentInDB.lastBestFound) {
                     console.log(`💓 [KEEPALIVE] פועל... (${new Date().toLocaleTimeString()})`);
                     try {
                         const currentUrl = page.url();
-                        console.log(`🌐 [KEEPALIVE] כתובת נוכחית: ${currentUrl}`);
                         if (!currentUrl.includes('ResponseSorry')) {
                             const popupBtn = await page.$('#ctl00_ctl00_LogOutTimeOut_btnMasterOk_lnkSubButton');
                             if (popupBtn) {
@@ -1064,13 +995,8 @@ if (currentInDB && currentInDB.lastBestFound) {
                             await page.evaluate(() => {
                                 fetch('/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx', { method: 'HEAD' }).catch(() => {});
                             });
-                            console.log(`✅ [KEEPALIVE] בקשה נשלחה לשרת בהצלחה`);
-                        } else {
-                            console.log(`⚠️ [KEEPALIVE] דף שגיאה פעיל – לא שולח בקשה`);
                         }
-                    } catch (e) {
-                        console.log('⚠️ [KEEPALIVE] שגיאה:', e.message);
-                    }
+                    } catch (e) { console.log('⚠️ [KEEPALIVE] שגיאה:', e.message); }
                 }
             }
 
@@ -1081,7 +1007,7 @@ if (currentInDB && currentInDB.lastBestFound) {
             }
             console.log("🏁 הבוט הופסק בהצלחה על ידי המשתמש.");
         }
-    } // סוף finally
-} // סוף runClalit
+    } 
+} 
 
 module.exports = { runClalit };

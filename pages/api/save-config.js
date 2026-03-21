@@ -65,7 +65,7 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  if (req.method === 'POST') {
+ if (req.method === 'POST') {
     try {
       if (!MONGODB_URI) {
           console.error("❌ MONGODB_URI is missing in .env file");
@@ -73,7 +73,41 @@ module.exports = async function handler(req, res) {
       }
       await dbConnect();
 
-      // חיפוש תבניות בשתי הטבלאות במקביל
+      // --- חדש: קבלת קוד אימות מהסמארטפון לעדכון ה-DB ---
+      if (req.body.action === 'sms_for_appointment') {
+          const { from, message, email } = req.body;
+
+          // בדיקה שהשולח הוא אכן מוסד רפואי (כללית/מור)
+          const authorizedSenders = ['Clalit', 'Mor', 'CLALIT', 'MOR'];
+          const isMedical = authorizedSenders.some(s => from?.includes(s));
+
+          if (!isMedical) {
+              console.warn(`[SMS-BLOCK] נחסמה הודעה ממקור לא מורשה: ${from}`);
+              return res.status(403).json({ error: "Unauthorized sender" });
+          }
+
+          // חילוץ 6 ספרות של קוד האימות מהטקסט
+          const otpMatch = message?.match(/\d{6}/);
+          const otpCode = otpMatch ? otpMatch[0] : null;
+
+          if (otpCode) {
+              // קריאת הקובץ הקיים
+              const currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+              
+              // עדכון השדות החדשים בתוך הקובץ
+              currentConfig.lastOtp = otpCode;
+              currentConfig.otpReceivedAt = Date.now();
+              
+              // שמירה חזרה לקובץ config.json
+              fs.writeFileSync(configPath, JSON.stringify(currentConfig, null, 2));
+              
+              console.log(`✅ [SMS-GATEWAY] קוד ${otpCode} נשמר בקובץ הקונפיג`);
+              return res.status(200).json({ status: 'success' });
+          }
+          return res.status(400).json({ error: "Missing OTP data or Email" });
+      }
+
+      // --- המשך הקוד הקיים: חיפוש תבניות ---
       if (req.body.action === 'search_templates') {
           const query = req.body.query || '';
           
