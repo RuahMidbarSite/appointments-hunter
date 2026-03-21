@@ -6,19 +6,19 @@
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "sms",
   "selectedCities": [
-    "רחובות"
+    "הרצליה"
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "",
-  "selectedSpecialization": "",
+  "selectedGroup": "62",
+  "selectedSpecialization": "62",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "",
+  "lastFoundDate": "טרם נמצאו תורים",
   "doctorDates": {},
   "activeEngines": [
     "mor_institute"

@@ -760,35 +760,94 @@
                                     {dbSearchResults.length > 0 && (
                                         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-96 overflow-y-auto">
                                         {dbSearchResults.map(t => {
-                                                // 1. חילוץ התחום הראשי לצ'יפ הצבעוני
-                                                const groupMatch = t.templateName.match(/תחום:\s*([^|]+)/);
-                                                const groupLabel = groupMatch ? groupMatch[1].trim() : "";
+                                               // 1. חילוץ נתונים לצ'יפים צבעוניים
+const groupMatch = t.templateName.match(/תחום:\s*([^|]+)/);
+const groupLabel = groupMatch ? groupMatch[1].trim() : "";
 
-                                                // 2. חילוץ המקצוע (תת-התחום) מתוך הקונפיגורציה השמורה
-                                                const specName = t.selectedSpecialization && CLALIT_SPECIALIZATIONS[t.selectedGroup]
-                                                    ? Object.values(CLALIT_SPECIALIZATIONS[t.selectedGroup]).find(s => String(s.id) === String(t.selectedSpecialization))?.name
-                                                    : "";
+const specName = t.selectedSpecialization && CLALIT_SPECIALIZATIONS[t.selectedGroup]
+    ? Object.values(CLALIT_SPECIALIZATIONS[t.selectedGroup]).find(s => String(s.id) === String(t.selectedSpecialization))?.name
+    : "";
 
-                                                // 3. ניקוי יסודי של הטקסט לשורה השנייה
-                                                let info = t.templateName;
-                                                if (t.familyMember) info = info.replace(t.familyMember, '');
-                                                if (t.userId) info = info.replace(new RegExp(`תז:\\s*${t.userId}|${t.userId}`, 'g'), '');
-                                                if (groupLabel) info = info.replace(new RegExp(`תחום:\\s*${groupLabel}`, 'g'), '');
+const morTestType = t.morSettings?.useManualPath ? t.morSettings.category : t.morSettings?.targetReferral;
 
-                                                // הסרת כותרות קבועות
-                                                info = info.replace(/תחום:|רופא:|עיר:|תאריך:|שעה:/g, '');
+// 2. ניקוי השורה השנייה מכל מה שכבר מופיע בצ'יפים (כדי למנוע כפילות)
+let infoContent = t.templateName;
+[t.familyMember, t.userId, groupLabel, specName, morTestType, "מכון מור", "רפואה יועצת", "בתי חולים"].forEach(term => {
+    if (term) infoContent = infoContent.replace(new RegExp(term, 'g'), '');
+});
 
-                                                // 4. עיבוד סימנים (החלפת | בנקודה וניקוי רווחים כפולים)
-                                                let finalInfo = info
-                                                    .replace(/\|/g, ' • ')
-                                                    .replace(/\s*•\s*•\s*/g, ' • ')
-                                                    .replace(/^\s*•\s*|\s*•\s*$/g, '')
-                                                    .trim();
-                                                
-                                                // הוספת המקצוע (תת-תחום) לתחילת השורה השנייה אם אינו קיים שם
-                                                if (specName && !finalInfo.includes(specName)) {
-                                                    finalInfo = `${specName} • ${finalInfo}`;
-                                                }
+// 3. עיבוד סימנים וכותרות לשורה השנייה (הגדרת finalInfo פעם אחת בלבד)
+let finalInfo = infoContent
+    .replace(/תחום:|בדיקה:|רופא:|עיר:|תאריך:|שעה:|אזורים:/g, '')
+    .replace(/\|/g, ' • ')
+    .replace(/\s*•\s*•\s*/g, ' • ')
+    .replace(/^\s*•\s*|\s*•\s*$/g, '')
+    .trim();
+
+return (
+    <div 
+        key={t._id} 
+        className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 group flex flex-col gap-1 text-right"
+        dir="rtl"
+        onClick={() => { 
+            const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
+            const updatedConfig = { ...config, ...cleanData, isTemplateActive: true };
+            setConfig(updatedConfig); 
+            handleAutoSave(updatedConfig);
+            setDbSearchResults([]); 
+        }}
+    >
+        {/* שורה 1: צ'יפים צבעוניים */}
+        <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                    <span className="text-xl">👤</span>
+                    <span className="text-xl font-black text-purple-700">{t.familyMember}</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
+                    <span className="text-sm">💳</span>
+                    <span className="text-base font-bold text-blue-600">{t.userId}</span>
+                </div>
+
+                {/* צ'יפ סוג מנוע */}
+                {t.activeEngines && t.activeEngines.length > 0 && (
+                    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
+                        ${t.activeEngines.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
+                          t.activeEngines.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
+                          'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                        <span>
+                            {t.activeEngines.includes('mor_institute') ? '🧪 מכון מור' : 
+                             t.activeEngines.includes('clalit_hospital') ? '🏥 בתי חולים' : 
+                             '🩺 רפואה יועצת'}
+                        </span>
+                    </div>
+                )}
+
+                {/* צ'יפ תחום / סוג בדיקה (צבעוני גם למור) */}
+                {(groupLabel || morTestType) && (
+                    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border shadow-sm
+                        ${t.activeEngines?.includes('mor_institute') ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-teal-50 text-teal-700 border-teal-200'}`}>
+                        <span className="text-sm">{t.activeEngines?.includes('mor_institute') ? '🔍' : '📋'}</span>
+                        <span className="text-base font-black">{morTestType || groupLabel}</span>
+                    </div>
+                )}
+            </div>
+            
+            <button onClick={(e) => deleteTemplate(e, t._id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-opacity">🗑️</button>
+        </div>
+
+        {/* שורה 2: מידע משלים בלבד (ערים, אזורים, תאריכי שמירה) */}
+        {finalInfo && (
+            <div className="flex items-start gap-2">
+                <span className="text-sm mt-0.5 opacity-70">📍</span>
+                <p className="text-[15px] font-bold text-gray-700 leading-tight">
+                    {finalInfo}
+                    {t.saveDate && <span className="text-[11px] text-gray-400 font-medium mr-2">({t.saveDate} {t.saveTime})</span>}
+                </p>
+            </div>
+        )}
+    </div>
+);
                                                 
                                                 return (
                                                     <div 
@@ -823,15 +882,30 @@
                                                                     <span className="text-xl font-black text-purple-700">{t.familyMember}</span>
                                                                 </div>
                                                                 <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
-                                                                    <span className="text-sm">💳</span>
-                                                                    <span className="text-base font-bold text-blue-600">{t.userId}</span>
-                                                                </div>
-                                                                {groupLabel && (
-                                                                    <div className="flex items-center gap-1.5 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
-                                                                        <span className="text-sm">🩺</span>
-                                                                        <span className="text-base font-black text-teal-700">{groupLabel}</span>
-                                                                    </div>
-                                                                )}
+    <span className="text-sm">💳</span>
+    <span className="text-base font-bold text-blue-600">{t.userId}</span>
+</div>
+
+{/* צ'יפ סוג מנוע חדש */}
+{t.activeEngines && t.activeEngines.length > 0 && (
+    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
+        ${t.activeEngines.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
+          t.activeEngines.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
+          'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+        <span>
+            {t.activeEngines.includes('mor_institute') ? '🧪 מכון מור' : 
+             t.activeEngines.includes('clalit_hospital') ? '🏥 בתי חולים' : 
+             '🩺 רפואה יועצת'}
+        </span>
+    </div>
+)}
+
+{groupLabel && (
+    <div className="flex items-center gap-1.5 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
+        <span className="text-sm">🩺</span>
+        <span className="text-base font-black text-teal-700">{groupLabel}</span>
+    </div>
+)}
                                                             </div>
                                                             
                                                             <button 
