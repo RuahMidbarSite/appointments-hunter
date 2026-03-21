@@ -6,28 +6,28 @@
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "sms",
   "selectedCities": [
-    "הרצליה"
+    "רחובות"
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "55",
-  "selectedSpecialization": "55",
+  "selectedGroup": "58",
+  "selectedSpecialization": "58",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "",
+  "lastFoundDate": "08:40 - מור: סניף ירושלים קרדיולוגיה (23.03.2026)",
   "doctorDates": {},
   "activeEngines": [
-    "clalit_specialist"
+    "mor_institute"
   ],
   "isTemplateActive": true,
   "liveProgress": "🛑 עצרתי הכל",
   "selectedDoctorNames": [],
   "lastBestFound": "",
-  "nextRunTime": 1774115869340,
+  "nextRunTime": null,
   "botStatus": "idle",
   "scanTimeRemaining": null,
   "morSettings": {
@@ -38,7 +38,7 @@
     ],
     "phoneSuffix": "6554868"
   },
-  "createdAt": "2026-03-21T13:07:30.286Z",
+  "createdAt": "2026-03-21T18:08:23.905Z",
   "bestBranch": "סניף ירושלים קרדיולוגיה",
   "bestDate": "08:40",
   "bestTime": "23.03.2026",

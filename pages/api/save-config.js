@@ -73,38 +73,46 @@ module.exports = async function handler(req, res) {
       }
       await dbConnect();
 
-      // --- חדש: קבלת קוד אימות מהסמארטפון לעדכון ה-DB ---
-      if (req.body.action === 'sms_for_appointment') {
-          const { from, message, email } = req.body;
+// --- קבלת קוד אימות מהסמארטפון (תמיכה בתבנית האפליקציה ללא שגיאות ירידת שורה) ---
+      const isSmsAction = req.body.action === 'sms_for_appointment' || req.body.sender !== undefined;
 
-          // בדיקה שהשולח הוא אכן מוסד רפואי (כללית/מור)
-          const authorizedSenders = ['Clalit', 'Mor', 'CLALIT', 'MOR'];
-          const isMedical = authorizedSenders.some(s => from?.includes(s));
+      if (isSmsAction) {
+          // חילוץ הנתונים (תומך גם בתבנית הישנה שלך וגם בברירת המחדל הבטוחה של האפליקציה)
+          const from = req.body.from || req.body.sender;
+          const message = req.body.message || req.body.body;
+
+          console.log(`\n--- 📩 [INCOMING SMS DEBUG] ---`);
+          console.log(`מאת: ${from || 'לא ידוע'}`);
+          console.log(`תוכן: ${message || 'אין תוכן'}`);
+          console.log(`-------------------------------\n`);
+
+          const authorizedSenders = ['Clalit', 'Mor', 'CLALIT', 'MOR', 'Machon', 'מכון מור', 'מור'];
+          const isMedical = authorizedSenders.some(s => {
+              if (!from) return false;
+              return String(from).toLowerCase().includes(s.toLowerCase());
+          });
 
           if (!isMedical) {
               console.warn(`[SMS-BLOCK] נחסמה הודעה ממקור לא מורשה: ${from}`);
               return res.status(403).json({ error: "Unauthorized sender" });
           }
 
-          // חילוץ 6 ספרות של קוד האימות מהטקסט
-          const otpMatch = message?.match(/\d{6}/);
+          // חילוץ של 4 עד 6 ספרות רצופות מתוך הטקסט
+          const otpMatch = message ? String(message).match(/\b\d{4,6}\b/) : null;
           const otpCode = otpMatch ? otpMatch[0] : null;
 
           if (otpCode) {
-              // קריאת הקובץ הקיים
               const currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-              
-              // עדכון השדות החדשים בתוך הקובץ
               currentConfig.lastOtp = otpCode;
               currentConfig.otpReceivedAt = Date.now();
-              
-              // שמירה חזרה לקובץ config.json
               fs.writeFileSync(configPath, JSON.stringify(currentConfig, null, 2));
               
-              console.log(`✅ [SMS-GATEWAY] קוד ${otpCode} נשמר בקובץ הקונפיג`);
+              console.log(`✅ [SMS-GATEWAY] קוד ${otpCode} נשמר בהצלחה!`);
               return res.status(200).json({ status: 'success' });
           }
-          return res.status(400).json({ error: "Missing OTP data or Email" });
+          
+          console.log(`❌ [SMS-GATEWAY] לא נמצא קוד מספרים בהודעה. מחזיר 400.`);
+          return res.status(400).json({ error: "Missing OTP data" });
       }
 
       // --- המשך הקוד הקיים: חיפוש תבניות ---

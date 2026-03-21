@@ -82,25 +82,87 @@ async function navigateMor(page, config) {
     updateLiveProgress("📱 ממתין להזנת קוד ה-SMS...");
     console.log("[DEBUG] עוקב אחרי הזנת קוד ה-SMS בדפדפן...");
 
-    try {
-        // ממתין שהמשתמש יקיש קוד (לפחות 6 ספרות) או שהכפתור יהיה זמין ללחיצה
-        await page.waitForFunction(() => {
-            const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('המשך'));
-            const input = document.querySelector('input[type="tel"], input[name="smsCode"]');
-            // תנאי ללחיצה: הכפתור לא כבוי (Enabled) או שהוקלדו 6 ספרות
-            return (btn && !btn.disabled) || (input && input.value.length >= 6);
-        }, { timeout: 300000 }); // מחכה עד 5 דקות להזנה שלך
+   try {
+        const timeoutMs = 300000; // 5 דקות להמתנה
+        const startTime = Date.now();
+        let loginSuccess = false;
 
-        console.log("[DEBUG] הקוד זוהה או שהכפתור נדלק, לוחץ על המשך...");
-        await page.click('button:has-text("המשך")', { force: true });
-        
-        // עכשיו ממתינים שהדף יתחלף ויופיע הכפתור "זימון תור חדש"
-        await page.waitForSelector('.new-app-btn', { timeout: 30000 });
-        await page.click('.new-app-btn');
-        console.log("✅ עברנו את מסך ה-SMS ופתחנו זימון תור חדש.");
+        while (Date.now() - startTime < timeoutMs) {
+            // 1. בדיקה אם כבר עברנו שלב (הכפתור של הדף הבא הופיע)
+            const isPassed = await page.$('.new-app-btn').catch(() => null);
+            if (isPassed) {
+                loginSuccess = true;
+                break;
+            }
+
+            // 2. חיפוש קוד אוטומטי מקובץ ה-config
+            try {
+                if (fs.existsSync('./config.json')) {
+                    const currentCfg = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                    const isFreshFile = currentCfg.otpReceivedAt && (Date.now() - currentCfg.otpReceivedAt < 300000);
+                    
+                    // במכון מור הקוד מורכב מ-6 ספרות
+                    if (isFreshFile && currentCfg.lastOtp && currentCfg.lastOtp.length >= 6) {
+                        
+                        // מוודאים שהמשבצת הראשונה של הקוד (tab0) נטענה
+                        const firstInputEl = await page.$('#tab0');
+                        if (firstInputEl && await firstInputEl.isVisible()) {
+                            console.log(`🤖 [AUTO-LOGIN] מזין קוד אוטומטי למכון מור: ${currentCfg.lastOtp}`);
+                            
+                            // פירוק הקוד ל-6 ספרות והזנה לכל תיבה בנפרד (tab0 עד tab5)
+                            const otpChars = currentCfg.lastOtp.split('');
+                            for (let i = 0; i < 6; i++) {
+                                if (otpChars[i]) {
+                                    const currentInput = `#tab${i}`;
+                                    await page.click(currentInput, { clickCount: 3 }).catch(() => {});
+                                    await page.keyboard.press('Backspace');
+                                    await page.type(currentInput, otpChars[i], { delay: 100 });
+                                }
+                            }
+                            
+                            await page.waitForTimeout(1000);
+                            
+                            // לחיצה על "המשך" (שלפעמים נדלק אוטומטית, אז אנחנו דוחפים לחיצה)
+                            await page.click('button:has-text("המשך")', { force: true }).catch(() => page.keyboard.press('Enter'));
+                            
+                            // מחיקת הקוד מהקובץ למניעת הזנה כפולה
+                            currentCfg.lastOtp = "";
+                            fs.writeFileSync('./config.json', JSON.stringify(currentCfg, null, 2));
+                        }
+                    }
+                }
+            } catch (e) {}
+
+            // 3. גיבוי - בדיקה אם הקוד הוזן ידנית והכפתור "המשך" הפך לפעיל
+            try {
+                const btnReady = await page.evaluate(() => {
+                    const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('המשך'));
+                    return btn && !btn.disabled;
+                });
+                
+                if (btnReady) {
+                    await page.click('button:has-text("המשך")', { force: true }).catch(() => {});
+                }
+            } catch (err) {}
+
+            await new Promise(r => setTimeout(r, 3000));
+        }
+
+        // מוודאים שטעינת הדף הבא הסתיימה
+        if (!loginSuccess) {
+            await page.waitForSelector('.new-app-btn', { timeout: 15000 });
+        }
+
+        // מעבר לחיפוש בפועל על ידי לחיצה על "זימון תור חדש"
+        const newAppBtn = await page.$('.new-app-btn');
+        if(newAppBtn && await newAppBtn.isVisible()){
+            await page.click('.new-app-btn');
+        }
+        console.log("✅ עברנו את מסך ה-SMS ופתחנו זימון תור חדש במכון מור.");
 
     } catch (e) {
-        console.log("⚠️ חלף זמן ההמתנה או שהכפתור לא הופיע. ייתכן שצריך ללחוץ ידנית.");
+        console.log("⚠️ חלף זמן ההמתנה, קוד שגוי או שגיאה בטעינת מסך מכון מור.");
+        return null;
     }
 
    // --- סריקת תורים ודימוי התנהגות אנושית ---
