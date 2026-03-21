@@ -20,20 +20,23 @@ const morSearchTemplateSchema = new mongoose.Schema({
         areaPriority: [{ type: String }]
     },
 
-    // הגדרות תזמון ולולאה (השדות שהיו חסרים)
+    // הגדרות תזמון ולולאה
     endDate: { type: String },
     loopFrequency: { type: String },
     startTime: { type: String },
     endTime: { type: String },
     
-    // שדות ניהול כלליים של התבנית
+    // שדות ניהול ותוצאות סריקה (הוספת שדות מפורטים)
     templateName: { type: String, required: true },
     saveDate: { type: String },
     saveTime: { type: String },
     lastFoundDate: { type: String },
     lastBestFound: { type: String },
+    bestBranch: { type: String }, // המקום/סניף
+    bestDate: { type: String },   // תאריך התור
+    bestTime: { type: String },   // שעת התור
+    provider: { type: String, default: 'MACHON_MOR' },
     activeEngines: [{ type: String }]
 }, { timestamps: true });
 
-// מניעת דריסה אם המודל כבר נטען
 module.exports = mongoose.models.MorSearchTemplate || mongoose.model('MorSearchTemplate', morSearchTemplateSchema);

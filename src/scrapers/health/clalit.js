@@ -3,6 +3,7 @@ const nodemailer = require('nodemailer');
 const preferredDoctors = require('./constants/doctors_whitelist');
 const mongoose = require('mongoose'); 
 const SearchTemplate = require('../../models/SearchTemplate'); 
+const MorSearchTemplate = require('../../models/MorSearchTemplate');
 const fs = require('fs');
 const path = require('path');
 const { setBotStatus, waitMinutes, isBetterAppointment, updateMemory } = require('../../utils/scheduler/loopManager');
@@ -366,19 +367,40 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
 
             const engines = config.activeEngines || ['clalit_specialist'];
 
-            // === מסלול מכון מור ===
+           // === מסלול מכון מור - שמירה מפורטת ל-DB ועדכון דשבורד ===
             if (engines.includes('mor_institute')) {
                 const morResult = await navigateMor(page, config);
                 if (morResult) {
-                    const foundStr = `מור: ${morResult.date} ב-${morResult.branch} (${morResult.time})`;
+                    // 1. פורמט מותאם ל"קוביה הצהובה" (התאריך מופיע בנפרד מהסניף)
+                    const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
                     updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
                     
-                    // עדכון הקונפיגורציה להצגה בדשבורד
+                    // 2. שמירה מפורטת ל-Database לשדות הייעודיים
+                    try {
+                        await MorSearchTemplate.updateOne(
+                            { userId: config.userId },
+                            { 
+                                $set: { 
+                                    lastBestFound: foundStr,
+                                    bestBranch: morResult.branch, 
+                                    bestDate: morResult.date,      
+                                    bestTime: morResult.time,      
+                                    provider: 'MACHON_MOR'
+                                } 
+                            },
+                            { upsert: true }
+                        );
+                        console.log(`💾 [DB-SYNC] התור ב-${morResult.branch} נשמר בהצלחה בטבלת מור.`);
+                    } catch (dbErr) {
+                        console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message);
+                    }
+
+                    // 3. עדכון קובץ ה-Config לסנכרון מיידי של הדשבורד
                     const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     currentConfig.lastFoundDate = foundStr;
                     fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
 
-                    // שליחת מייל התראה
+                    // 4. שליחת מייל התראה
                     try {
                         await sendEmailNotification(
                             `מכון מור - ${morResult.branch}`, 
@@ -390,9 +412,8 @@ await page.waitForSelector(idField, { state: 'visible', timeout: 5000 });
                         console.error("⚠️ שגיאה בשליחת מייל מור:", e.message);
                     }
                 }
-                return; // סיום הסבב לאחר סריקת מור
+                return; 
             }
-
             // === מסלול בתי חולים (בדיקות) ===
             if (engines.includes('clalit_hospital')) {
                 // נחלץ רק את העיר הראשונה מהקונפיג כדי להעביר לניווט (אם יש), אחרת ברירת מחדל

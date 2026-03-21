@@ -790,12 +790,38 @@ return (
         className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 group flex flex-col gap-1 text-right"
         dir="rtl"
         onClick={() => { 
-            const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
-            const updatedConfig = { ...config, ...cleanData, isTemplateActive: true };
-            setConfig(updatedConfig); 
-            handleAutoSave(updatedConfig);
-            setDbSearchResults([]); 
-        }}
+    const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
+
+    // ברירת מחדל למנוע אם חסר (פותר את בעיית הצ'קבוקס בתבניות ישנות של כללית)
+    if (!cleanData.activeEngines || cleanData.activeEngines.length === 0) {
+        cleanData.activeEngines = ['clalit_specialist'];
+    }
+
+    // עדכון התור המוקדם ביותר (הקוביה הצהובה) מהתבנית
+    const newFoundDate = cleanData.lastBestFound || cleanData.lastFoundDate || '';
+    cleanData.lastFoundDate = newFoundDate;
+
+    // עדכון doctorDates לתצוגת הרופאים
+    if (newFoundDate && newFoundDate.includes('-')) {
+        const parts = newFoundDate.split('-');
+        const datePart = parts[0].trim();
+        const docPart = parts[1].split('(')[0].trim();
+        cleanData.doctorDates = {};
+        cleanData.doctorDates[docPart] = datePart;
+    } else {
+        cleanData.doctorDates = {};
+    }
+
+    const updatedConfig = { 
+        ...config, 
+        ...cleanData, 
+        activeEngines: cleanData.activeEngines || ['clalit_specialist'],
+        isTemplateActive: true 
+    };
+    setConfig(updatedConfig); 
+    handleAutoSave(updatedConfig);
+    setDbSearchResults([]); 
+}}
     >
         {/* שורה 1: צ'יפים צבעוניים */}
         <div className="flex items-center justify-between w-full">
@@ -855,24 +881,41 @@ return (
                                                         className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 group flex flex-col gap-1 text-right"
                                                         dir="rtl"
                                                         onClick={() => { 
-                                                            const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
-                                                            if (cleanData.lastBestFound) {
-                                                                cleanData.lastFoundDate = cleanData.lastBestFound;
-                                                                const parts = cleanData.lastBestFound.split('-');
-                                                                if (parts.length >= 2) {
-                                                                    const datePart = parts[0].trim();
-                                                                    const docPart = parts[1].split('(')[0].trim(); 
-                                                                    cleanData.doctorDates = cleanData.doctorDates || {};
-                                                                    cleanData.doctorDates[docPart] = datePart;
-                                                                }
-                                                            } else if (!cleanData.lastFoundDate) {
-                                                                cleanData.lastFoundDate = ''; 
-                                                            }
-                                                            const updatedConfig = { ...config, ...cleanData, isTemplateActive: true };
-                                                            setConfig(updatedConfig); 
-                                                            handleAutoSave(updatedConfig);
-                                                            setDbSearchResults([]); 
-                                                        }}
+    const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
+    
+    // 1. קביעת מנוע ברירת מחדל אם השדה חסר (פותר את בעיית הצ'קבוקס)
+    if (!cleanData.activeEngines || cleanData.activeEngines.length === 0) {
+        cleanData.activeEngines = ['clalit_specialist'];
+    }
+
+    // 2. איפוס ועדכון התור המוקדם ביותר (הקוביה הצהובה)
+    // אנחנו מוודאים ש-lastFoundDate יקבל את הערך מהתבנית החדשה או יתנקה לגמרי
+    const newFoundDate = cleanData.lastBestFound || cleanData.lastFoundDate || '';
+    cleanData.lastFoundDate = newFoundDate;
+
+    // 3. עדכון רשימת הרופאים והתאריכים עבור רפואה יועצת
+    if (newFoundDate && newFoundDate.includes('-')) {
+        const parts = newFoundDate.split('-');
+        const datePart = parts[0].trim();
+        const docPart = parts[1].split('(')[0].trim();
+        cleanData.doctorDates = {}; // איפוס תאריכים ישנים
+        cleanData.doctorDates[docPart] = datePart;
+    } else {
+        cleanData.doctorDates = {}; // ניקוי תאריכים אם אין תור בתבנית
+    }
+
+    // וידוא שהמנוע מתעדכן: אם התבנית ישנה ואין בה שדה מנוע, נבחר רפואה יועצת כברירת מחדל
+                const updatedConfig = { 
+                    ...config, 
+                    ...cleanData, 
+                    activeEngines: cleanData.activeEngines || ['clalit_specialist'],
+                    isTemplateActive: true 
+                };
+                
+                setConfig(updatedConfig); 
+                handleAutoSave(updatedConfig);
+                setDbSearchResults([]);
+}}
                                                     >
                                                         {/* שורה 1: שם, ת"ז ותחום (צבעוני) */}
                                                         <div className="flex items-center justify-between w-full">
@@ -973,41 +1016,49 @@ return (
                                         <span className="w-1.5 h-5 bg-teal-500 rounded-full"></span> יעדי סריקה פעילים:
                                     </h2>
                                     <div className="flex flex-wrap gap-3 bg-white p-3 rounded-xl border border-teal-100 shadow-sm">
-                                    {[
-                                        { id: 'clalit_specialist', label: 'רפואה יועצת', icon: '🩺' },
-                                        { id: 'clalit_hospital', label: 'בתי חולים (בדיקות)', icon: '🏥' },
-                                        { id: 'mor_institute', label: 'מכון מור', icon: '🧪' } // הוסרה חסימת הלחיצה
-                                    ].map(engine => {
-                                        // בדיקה האם המנוע הנוכחי פעיל (או אם מדובר בברירת המחדל כשאין בחירה)
-                                        const isChecked = config.activeEngines?.includes(engine.id) || 
-                                                          (engine.id === 'clalit_specialist' && (!config.activeEngines || config.activeEngines.length === 0));
-                                        
-                                        return (
-                                        <label key={engine.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded-lg transition-all ${isChecked ? 'bg-teal-50 border border-teal-200 shadow-sm' : 'opacity-60 hover:opacity-100'}`}>
-                                            <input 
-                                                type="checkbox" 
-                                                checked={isChecked} 
-                                                onChange={() => {
-                                                    // מניעת ביטול בחירה אם לוחצים על מה שכבר נבחר
-                                                    if (isChecked) return; 
-                                                    
-                                                    // מעבר למנוע החדש - דורס את הקודמים ומאפס את השדות כדי למנוע התנגשויות
-                                                    const updated = { 
-                                                        ...config, 
-                                                        activeEngines: [engine.id], // דורס לבחירה יחידה
-                                                        selectedGroup: '', // איפוס תחום
-                                                        selectedSpecialization: '', // איפוס מקצוע
-                                                        selectedDoctors: [], // איפוס רופאים
-                                                        selectedDoctorNames: []
-                                                    };
-                                                    setConfig(updated);
-                                                    handleAutoSave(updated);
-                                                }}
-                                                className="w-5 h-5 accent-[#00a896]" 
-                                            />
-                                            <span className="text-sm font-black text-teal-900">{engine.icon} {engine.label}</span>
-                                        </label>
-                                    )})}
+                                  {[
+    { id: 'clalit_specialist', label: 'רפואה יועצת', icon: '🩺' },
+    { id: 'clalit_hospital', label: 'בתי חולים (בדיקות)', icon: '🏥' },
+    { id: 'mor_institute', label: 'מכון מור', icon: '🧪' }
+].map(engine => {
+    // התאמה מדויקת ל-State: מסומן רק אם הוא באמת נמצא במערך
+    const isChecked = config.activeEngines?.includes(engine.id);
+
+    return (
+        <label key={engine.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded-lg transition-all border-2 ${isChecked ? 'bg-teal-50 border-teal-400 shadow-sm' : 'bg-white border-transparent opacity-60 hover:opacity-100'}`}>
+            <input 
+                type="checkbox" 
+                checked={!!isChecked} 
+                onChange={() => {
+                    let newEngines;
+                    if (isChecked) {
+                        // הסרה מהבחירה (רק אם יש יותר מאחד, כדי שלא יישאר ריק)
+                        newEngines = config.activeEngines.filter(id => id !== engine.id);
+                    } else {
+                        // הוספה לבחירה (כאן תוכל להחליט אם לאפשר ריבוי מנועים או רק אחד)
+                        newEngines = [engine.id]; 
+                    }
+
+                    const updated = { 
+                        ...config, 
+                        activeEngines: newEngines,
+                        // איפוס שדות רלוונטיים רק במעבר בין סוגי מנועים שונים
+                        selectedGroup: isChecked ? config.selectedGroup : '', 
+                        selectedSpecialization: isChecked ? config.selectedSpecialization : '',
+                        isTemplateActive: false 
+                    };
+                    
+                    setConfig(updated);
+                    handleAutoSave(updated);
+                }}
+                className="w-5 h-5 accent-[#00a896]" 
+            />
+            <span className={`text-sm font-black ${isChecked ? 'text-teal-900' : 'text-gray-500'}`}>
+                {engine.icon} {engine.label}
+            </span>
+        </label>
+    );
+})}
                                 </div>
                                 </div>
 

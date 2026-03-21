@@ -103,34 +103,64 @@ async function navigateMor(page, config) {
         console.log("⚠️ חלף זמן ההמתנה או שהכפתור לא הופיע. ייתכן שצריך ללחוץ ידנית.");
     }
 
-    // --- סריקת תורים ---
+   // --- סריקת תורים ודימוי התנהגות אנושית ---
+    const humanDelay = async (min = 1500, max = 3000) => {
+        await page.waitForTimeout(Math.floor(Math.random() * (max - min + 1) + min));
+    };
+
     const targetRef = config.morSettings?.targetReferral || "מבחן מאמץ";
     await page.waitForSelector('.box-msg.item', { timeout: 15000 });
-    await page.click(`.box-msg.item:has-text("${targetRef}")`);
-    await page.click('button:has-text("המשך")');
+    
+    console.log(`[DEBUG] בוחר הפניה: ${targetRef}`);
+    await page.click(`.box-msg.item:has-text("${targetRef}")`, { delay: Math.random() * 500 + 200 });
+    await humanDelay(1000, 2000);
+    await page.click('button:has-text("המשך")', { delay: 300 });
 
     const areas = config.morSettings?.areaPriority || ["מרכז", "ירושלים והסביבה"];
+    let foundAppointment = null;
+
     for (const area of areas) {
         updateLiveProgress(`🔍 בודק אזור: ${area}`);
-        await page.click(`.flex-text:has-text("${area}")`);
-        await page.waitForTimeout(2000);
+        
+        // לחיצה אנושית על האזור עם השהיה
+        await page.click(`.flex-text:has-text("${area}")`, { delay: Math.random() * 400 + 200 });
+        await humanDelay(3000, 5000); 
 
-        const noApps = await page.$('text="לא נמצאו תורים פנויים"');
-        if (noApps) continue;
+       // איתור תיבת התור הראשון המדויקת (לפי ה-HTML של כרטיסיית התור)
+        const appointmentBoxes = page.locator('.flex-box-item.free-app .flex-container');
+        
+        if (await appointmentBoxes.count() > 0) {
+            const firstBox = appointmentBoxes.first();
+            
+            // שליפת המקום והזמן מהאלמנטים הפנימיים המדויקים (מונע "זיהום" מהתפריט העליון)
+            const branchName = await firstBox.locator('.flex-text').innerText(); 
+            const dateTimeRaw = await firstBox.locator('.flex-items').innerText(); 
+            const [time, date] = dateTimeRaw.split('|').map(s => s.trim());
+            
+            console.log(`[DEBUG] נמצא תור ב-${branchName} בתאריך ${date} בשעה ${time}`);
+            
+            // לחיצה פיזית על התור כדי להפעיל את כפתור ה'המשך'
+            await firstBox.click({ delay: Math.random() * 500 + 300 });
+            await humanDelay(2000, 3000);
 
-        const result = await page.evaluate(() => {
-            const container = document.querySelector('.flex-container.selected');
-            if (!container) return null;
-            return {
-                branch: container.querySelector('.flex-text')?.innerText.trim(),
-                date: container.querySelector('.flex-date')?.innerText.trim(),
-                time: container.querySelector('.flex-time')?.innerText.trim()
-            };
-        });
-        if (result) return { ...result, area };
+            const continueBtn = page.locator('button:has-text("המשך")');
+            if (await continueBtn.isEnabled()) {
+                await continueBtn.click({ delay: 500 });
+                console.log("✅ תור נבחר והמשכנו למסך הסיכום.");
+                
+                foundAppointment = {
+                    branch: branchName.trim(),
+                    date: date.trim(),
+                    time: time.trim(),
+                    area: area,
+                    provider: 'MACHON_MOR'
+                };
+                break; 
+            }
+        }
     }
 
-    return null;
+    return foundAppointment;
 }
 
 module.exports = { navigateMor };

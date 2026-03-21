@@ -6,30 +6,32 @@
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "sms",
   "selectedCities": [
-    "הרצליה"
+    "רחובות"
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "62",
-  "selectedSpecialization": "62",
+  "selectedGroup": "58",
+  "selectedSpecialization": "58",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "טרם נמצאו תורים",
-  "doctorDates": {},
+  "lastFoundDate": "22.03.2026 - ד\"ר אפרימה בן (רחובות)",
+  "doctorDates": {
+    "ד\"ר אפרימה בן": "22.03.2026"
+  },
   "activeEngines": [
-    "mor_institute"
+    "clalit_specialist"
   ],
   "isTemplateActive": true,
   "liveProgress": "🛑 עצרתי הכל",
   "selectedDoctorNames": [],
-  "lastBestFound": "",
+  "lastBestFound": "22.03.2026 - ד\"ר אפרימה בן (רחובות)",
   "nextRunTime": null,
   "botStatus": "idle",
-  "scanTimeRemaining": null,
+  "scanTimeRemaining": 60,
   "morSettings": {
     "useManualPath": true,
     "category": "דימות: אולטרסאונד / CT",
@@ -38,5 +40,9 @@
     ],
     "phoneSuffix": "6554868"
   },
-  "createdAt": "2026-03-20T22:01:47.852Z"
+  "createdAt": "2026-03-21T13:07:30.286Z",
+  "bestBranch": "סניף ירושלים קרדיולוגיה",
+  "bestDate": "08:40",
+  "bestTime": "23.03.2026",
+  "provider": "MACHON_MOR"
 }
