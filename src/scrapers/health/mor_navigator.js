@@ -32,15 +32,13 @@ async function navigateMor(page, config) {
     await page.fill('#personalId', idNum);
     await page.keyboard.press('Tab');
 
-    // 2. בחירת קידומת - גרסה אגרסיבית
-    // אנחנו בודקים גם ב-config וגם ב-morSettings ליתר ביטחון
+    // 2. בחירת קידומת
     const prefix = config.morSettings?.phonePrefix || config.phonePrefix || "052";
     console.log(`[DEBUG] מנסה לבחור קידומת: ${prefix}`);
     
     try {
         await page.click('#phonePrefixNumber', { force: true });
         await page.waitForTimeout(1000);
-        // מחפשים את הקידומת בכל מקום שבו היא מופיעה כתפריט
         await page.click(`.custom-option:has-text("${prefix}")`, { timeout: 3000 });
         console.log(`✅ קידומת ${prefix} נבחרה.`);
     } catch (e) {
@@ -61,13 +59,11 @@ async function navigateMor(page, config) {
     await page.fill('#phoneNumber', phoneSuffix);
     await page.keyboard.press('Tab');
 
-    // 4. סימון הצ'קבוקס (חובה!)
+    // 4. סימון הצ'קבוקס
     console.log("[DEBUG] מסמן הסכמה לתנאים...");
     try {
-        // מנסה ללחוץ על הלייבל או על הריבוע עצמו
         await page.click('.checkbox-label', { timeout: 2000 }).catch(() => page.click('#userAgreement', { force: true }));
     } catch (e) {
-        // מוודא סימון דרך הקוד אם הלחיצה נכשלה
         await page.evaluate(() => {
             const cb = document.querySelector('input[type="checkbox"]');
             if (cb) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
@@ -88,29 +84,27 @@ async function navigateMor(page, config) {
         let loginSuccess = false;
 
         while (Date.now() - startTime < timeoutMs) {
-            // 1. בדיקה אם כבר עברנו שלב (הכפתור של הדף הבא הופיע)
+            // 1. בדיקה אם כבר עברנו שלב
             const isPassed = await page.$('.new-app-btn').catch(() => null);
             if (isPassed) {
                 loginSuccess = true;
                 break;
             }
 
-            // 2. חיפוש קוד אוטומטי מקובץ ה-config
+            // 2. חיפוש קוד אוטומטי - המנגנון המקורי שעבד!
             try {
                 if (fs.existsSync('./config.json')) {
                     const currentCfg = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     const isFreshFile = currentCfg.otpReceivedAt && (Date.now() - currentCfg.otpReceivedAt < 300000);
                     
-                    // במכון מור הקוד מורכב מ-6 ספרות
-                    if (isFreshFile && currentCfg.lastOtp && currentCfg.lastOtp.length >= 6) {
+                    if (isFreshFile && currentCfg.lastOtp && String(currentCfg.lastOtp).trim().length >= 6) {
                         
-                        // מוודאים שהמשבצת הראשונה של הקוד (tab0) נטענה
                         const firstInputEl = await page.$('#tab0');
                         if (firstInputEl && await firstInputEl.isVisible()) {
-                            console.log(`🤖 [AUTO-LOGIN] מזין קוד אוטומטי למכון מור: ${currentCfg.lastOtp}`);
+                            const otpStr = String(currentCfg.lastOtp).trim();
+                            console.log(`🤖 [AUTO-LOGIN] מזין קוד אוטומטי למכון מור: ${otpStr}`);
                             
-                            // פירוק הקוד ל-6 ספרות והזנה לכל תיבה בנפרד (tab0 עד tab5)
-                            const otpChars = currentCfg.lastOtp.split('');
+                            const otpChars = otpStr.split('');
                             for (let i = 0; i < 6; i++) {
                                 if (otpChars[i]) {
                                     const currentInput = `#tab${i}`;
@@ -121,11 +115,9 @@ async function navigateMor(page, config) {
                             }
                             
                             await page.waitForTimeout(1000);
-                            
-                            // לחיצה על "המשך" (שלפעמים נדלק אוטומטית, אז אנחנו דוחפים לחיצה)
                             await page.click('button:has-text("המשך")', { force: true }).catch(() => page.keyboard.press('Enter'));
                             
-                            // מחיקת הקוד מהקובץ למניעת הזנה כפולה
+                            // השמירה חזרה לסוף - לא יהרוג את התהליך באמצע!
                             currentCfg.lastOtp = "";
                             fs.writeFileSync('./config.json', JSON.stringify(currentCfg, null, 2));
                         }
@@ -133,7 +125,7 @@ async function navigateMor(page, config) {
                 }
             } catch (e) {}
 
-            // 3. גיבוי - בדיקה אם הקוד הוזן ידנית והכפתור "המשך" הפך לפעיל
+            // 3. גיבוי - בדיקה אם הקוד הוזן ידנית
             try {
                 const btnReady = await page.evaluate(() => {
                     const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('המשך'));
@@ -148,12 +140,10 @@ async function navigateMor(page, config) {
             await new Promise(r => setTimeout(r, 3000));
         }
 
-        // מוודאים שטעינת הדף הבא הסתיימה
         if (!loginSuccess) {
             await page.waitForSelector('.new-app-btn', { timeout: 15000 });
         }
 
-        // מעבר לחיפוש בפועל על ידי לחיצה על "זימון תור חדש"
         const newAppBtn = await page.$('.new-app-btn');
         if(newAppBtn && await newAppBtn.isVisible()){
             await page.click('.new-app-btn');
@@ -170,13 +160,100 @@ async function navigateMor(page, config) {
         await page.waitForTimeout(Math.floor(Math.random() * (max - min + 1) + min));
     };
 
-    const targetRef = config.morSettings?.targetReferral || "מבחן מאמץ";
     await page.waitForSelector('.box-msg.item', { timeout: 15000 });
+
+    console.log("🛠️ מנתח את המסלול החכם מהדשבורד...");
     
-    console.log(`[DEBUG] בוחר הפניה: ${targetRef}`);
-    await page.click(`.box-msg.item:has-text("${targetRef}")`, { delay: Math.random() * 500 + 200 });
-    await humanDelay(1000, 2000);
-    await page.click('button:has-text("המשך")', { delay: 300 });
+    // חילוץ נתוני המסלול והטקסט המדויק שהוזן ידנית
+    const exactMatch = config.morSettings?.targetReferral;
+    const fallbackPath = [
+        config.morSettings?.category, 
+        config.morSettings?.subCategory, 
+        config.morSettings?.targetOrgan
+    ].filter(Boolean);
+
+    const existingReferrals = await page.$$('.box-msg.item');
+    let foundExisting = false;
+    let matchedText = "";
+
+    for (const ref of existingReferrals) {
+        const text = await ref.innerText();
+        
+        // זיהוי חכם: בודק קודם טקסט מדויק, ואז את התפריטים
+        const isExactMatch = exactMatch && text.includes(exactMatch);
+        const isCategoryMatch = fallbackPath.some(pathStep => text.includes(pathStep));
+
+        if (isExactMatch || isCategoryMatch) {
+            matchedText = text;
+            await ref.click({ delay: Math.random() * 500 + 200 });
+            foundExisting = true;
+            break;
+        }
+    }
+
+    if (foundExisting) {
+        console.log(`✅ [DEBUG] נמצאה הפניה קיימת שמתאימה למסלול: ${matchedText}`);
+        await humanDelay(1000, 2000);
+        await page.click('button:has-text("המשך")', { delay: 300 });
+   } else {
+        console.log("⚠️ הפניה לא נמצאה ברשימה הראשונית, עובר ל'ההפניה שלי לא ברשימה'...");
+        await page.click('span:has-text("ההפניה שלי לא ברשימה")').catch(() => page.click('text="ההפניה שלי לא ברשימה"'));
+        await humanDelay(1500, 2500);
+
+        // 1. בחירת גורם משלם
+        const insurer = config.morSettings?.insuranceType || "כללית";
+        console.log(`💳 בוחר גורם משלם: ${insurer}`);
+        try {
+            await page.click('#insurer', { timeout: 2000 });
+            await page.waitForTimeout(500);
+            await page.click(`.custom-option:has-text("${insurer}")`, { timeout: 2000 });
+        } catch (e) {
+            console.log("⚠️ לא נמצא תפריט מעוצב, מנסה בחירה רגילה...");
+            await page.selectOption('select', { label: insurer }).catch(() => {});
+        }
+        await humanDelay(1000, 1500);
+
+        // 2. בחירת קטגוריה ראשית
+        if (config.morSettings?.category) {
+            console.log(`📋 בוחר קטגוריה: ${config.morSettings.category}`);
+            // זיהוי גמיש על בסיס הטקסט בלבד במקום קלאסים ספציפיים
+            await page.click(`text="${config.morSettings.category}"`).catch(() => 
+                page.click(`//*[contains(text(), "${config.morSettings.category}")]`)
+            ).catch(() => console.log("⚠️ לא מצאתי את הקטגוריה במסך"));
+            await humanDelay(1000, 1500);
+        }
+
+        // 3. בחירת תת-קטגוריה
+        if (config.morSettings?.subCategory) {
+            console.log(`🔍 בוחר תת-קטגוריה: ${config.morSettings.subCategory}`);
+            await page.click(`text="${config.morSettings.subCategory}"`).catch(() => 
+                page.click(`//*[contains(text(), "${config.morSettings.subCategory}")]`)
+            ).catch(() => {});
+            await humanDelay(800, 1200);
+            
+            const continueBtn = await page.$('button:has-text("המשך")');
+            if (continueBtn && await continueBtn.isEnabled()) {
+                await continueBtn.click();
+                await humanDelay(1500, 2000);
+            }
+        }
+
+        // 4. בחירת איבר מטרה ספציפי
+        if (config.morSettings?.targetOrgan) {
+            console.log(`🎾 בוחר איבר/בדיקה: ${config.morSettings.targetOrgan}`);
+            const cleanTarget = config.morSettings.targetOrgan.split('(')[0].trim();
+            await page.click(`text="${cleanTarget}"`).catch(() => 
+                page.click(`//*[contains(text(), "${cleanTarget}")]`)
+            ).catch(() => {});
+            await humanDelay(1000, 1500);
+            
+            const continueBtn2 = await page.$('button:has-text("המשך")');
+            if (continueBtn2 && await continueBtn2.isEnabled()) {
+                await continueBtn2.click();
+                await humanDelay(1500, 2000);
+            }
+        }
+    }
 
     const areas = config.morSettings?.areaPriority || ["מרכז", "ירושלים והסביבה"];
     let foundAppointment = null;
@@ -184,24 +261,20 @@ async function navigateMor(page, config) {
     for (const area of areas) {
         updateLiveProgress(`🔍 בודק אזור: ${area}`);
         
-        // לחיצה אנושית על האזור עם השהיה
         await page.click(`.flex-text:has-text("${area}")`, { delay: Math.random() * 400 + 200 });
         await humanDelay(3000, 5000); 
 
-       // איתור תיבת התור הראשון המדויקת (לפי ה-HTML של כרטיסיית התור)
         const appointmentBoxes = page.locator('.flex-box-item.free-app .flex-container');
         
         if (await appointmentBoxes.count() > 0) {
             const firstBox = appointmentBoxes.first();
             
-            // שליפת המקום והזמן מהאלמנטים הפנימיים המדויקים (מונע "זיהום" מהתפריט העליון)
             const branchName = await firstBox.locator('.flex-text').innerText(); 
             const dateTimeRaw = await firstBox.locator('.flex-items').innerText(); 
             const [time, date] = dateTimeRaw.split('|').map(s => s.trim());
             
             console.log(`[DEBUG] נמצא תור ב-${branchName} בתאריך ${date} בשעה ${time}`);
             
-            // לחיצה פיזית על התור כדי להפעיל את כפתור ה'המשך'
             await firstBox.click({ delay: Math.random() * 500 + 300 });
             await humanDelay(2000, 3000);
 
@@ -225,4 +298,4 @@ async function navigateMor(page, config) {
     return foundAppointment;
 }
 
-module.exports = { navigateMor };
+module.exports = { navigateMor };   

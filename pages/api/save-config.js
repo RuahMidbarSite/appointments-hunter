@@ -86,17 +86,8 @@ module.exports = async function handler(req, res) {
           console.log(`תוכן: ${message || 'אין תוכן'}`);
           console.log(`-------------------------------\n`);
 
-          const authorizedSenders = ['Clalit', 'Mor', 'CLALIT', 'MOR', 'Machon', 'מכון מור', 'מור'];
-          const isMedical = authorizedSenders.some(s => {
-              if (!from) return false;
-              return String(from).toLowerCase().includes(s.toLowerCase());
-          });
-
-          if (!isMedical) {
-              console.warn(`[SMS-BLOCK] נחסמה הודעה ממקור לא מורשה: ${from}`);
-              return res.status(403).json({ error: "Unauthorized sender" });
-          }
-
+          // הסרנו את חסימת האבטחה שדחתה את ההודעות מהאפליקציה בטלפון
+          
           // חילוץ של 4 עד 6 ספרות רצופות מתוך הטקסט
           const otpMatch = message ? String(message).match(/\b\d{4,6}\b/) : null;
           const otpCode = otpMatch ? otpMatch[0] : null;

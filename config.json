@@ -6,7 +6,8 @@
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "password",
   "selectedCities": [
-    "נהריה"
+    "נהריה",
+    "נתניה"
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
@@ -20,9 +21,35 @@
   "endTime": "22:00",
   "lastFoundDate": "",
   "doctorDates": {},
+  "activeEngines": [
+    "mor_institute"
+  ],
+  "loadedTemplateId": "69c02862ac68086ed27d6e47",
   "isTemplateActive": true,
   "selectedDoctorNames": [],
-  "activeEngines": [
-    "clalit_specialist"
-  ]
+  "liveProgress": "🛑 עצרתי הכל",
+  "nextRunTime": null,
+  "bestBranch": "סניף ירושלים קרדיולוגיה",
+  "bestDate": "08:40",
+  "bestTime": "23.03.2026",
+  "createdAt": "2026-03-22T17:35:30.119Z",
+  "morSettings": {
+    "useManualPath": true,
+    "category": "דימות:  אולטרסאונד / CT",
+    "areaPriority": [
+      "מרכז",
+      "דרום",
+      "צפון"
+    ],
+    "phoneSuffix": "6554868",
+    "insuranceType": "כללית",
+    "subCategory": "CT",
+    "targetOrgan": "סינוסים"
+  },
+  "provider": "MACHON_MOR",
+  "lastBestFound": "",
+  "botStatus": "idle",
+  "scanTimeRemaining": null,
+  "lastOtp": "853729",
+  "otpReceivedAt": 1774209967871
 }

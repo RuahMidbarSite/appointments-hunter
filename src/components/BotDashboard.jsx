@@ -23,7 +23,45 @@
     import { AVAILABLE_DOCTORS as hepatoDoctors } from '../scrapers/health/constants/Hepatology';
     import { AVAILABLE_DOCTORS as allergyDoctors } from '../scrapers/health/constants/Allergy';
     import { AVAILABLE_DOCTORS as oncoDoctors } from '../scrapers/health/constants/oncology';
+const MOR_PATHS = {
+  "כללית": {
+    "לב וכלי דם": {
+      "אקו": { "אקו לב": ["רגיל", "במאמץ (סטרס אקו)"] },
+      "כלי דם": { "דופלר/דופלקס": ["עורקי כליה", "ורידים", "קרוטיס (צוואר)", "עורקי רגליים"] },
+      "ארגומטריה": ["בדיקת מאמץ רגילה"]
+    },
+    "דימות:  אולטרסאונד / CT": {
+      "אולטרסאונד": ["אשכים", "תאירואיד", "בטן עליונה", "מפשעה", "אגן", "צוואר", "שד"],
+      "CT": ["סינוסים", "עמוד שדרה", "בטן"]
+    },
+    "עיניים": { "צילומים": ["פונדוס", "OCT", "שדה ראייה ממוחשב", "צילום רשתית"] },
+    "EMG": { "בדיקה": ["רגל", "יד"] }
+  },
+  "כללית פלטינום או מושלם": {
+    "מטיילים": {
+      "מרפאת מטיילים": {
+        "ייעוץ": ["לא (קביעת תור חדש)", "כן (חיסונים חוזרים בלבד)"],
+        "ביקור חוזר": ["כן (עברתי ייעוץ במור)", "לא (נדרש תיאום ייעוץ רופא)"]
+      }
+    },
+    "לב וכלי דם": { "ארגומטריה": ["בדיקת מאמץ רגילה"] },
+    "בריאות השד": ["ממוגרפיה", "אולטרסאונד שד"],
+    "צפיפות עצם": ["בדיקת צפיפות עצם"]
+  },
+  "לקוח פרטי": {} 
+};
 
+const getMorOptions = (level, settings) => {
+  const insurance = settings?.insuranceType === "לקוח פרטי" ? "כללית" : (settings?.insuranceType || "כללית");
+  const tree = MOR_PATHS[insurance] || MOR_PATHS["כללית"];
+  if (level === 'category') return Object.keys(tree);
+  const catData = tree[settings?.category];
+  if (!catData) return [];
+  if (level === 'subCategory') return Array.isArray(catData) ? [] : Object.keys(catData);
+  const subCatData = catData[settings?.subCategory];
+  if (!subCatData) return Array.isArray(catData) ? catData : [];
+  return Array.isArray(subCatData) ? subCatData : Object.keys(subCatData);
+};
     const DOCTORS_DATABASE = {
         "אורולוגיה": urologyDoctors,
         "אורתופדיה": orthopedicsDoctors,
@@ -189,7 +227,29 @@
         activeEngines: ['clalit_specialist'],
         loadedTemplateId: null // שדה חדש לשמירת ה-ID של התבנית שנטענה
         });
+const handleMorPathChange = (level, value) => {
+        let newSettings = { ...config.morSettings, [level]: value };
+        if (level === 'insuranceType') { newSettings.category = ''; newSettings.subCategory = ''; newSettings.targetOrgan = ''; }
+        if (level === 'category') { newSettings.subCategory = ''; newSettings.targetOrgan = ''; }
+        if (level === 'subCategory') { newSettings.targetOrgan = ''; }
 
+        const autoSkip = (settings, currentLevel) => {
+            const nextMap = { 'insuranceType': 'category', 'category': 'subCategory', 'subCategory': 'targetOrgan' };
+            const nextLevel = nextMap[currentLevel];
+            if (!nextLevel) return settings;
+            const options = getMorOptions(nextLevel, settings);
+            if (options.length === 1) {
+                settings[nextLevel] = options[0];
+                return autoSkip(settings, nextLevel);
+            }
+            return settings;
+        };
+
+        const finalSettings = autoSkip(newSettings, level);
+        const updated = { ...config, morSettings: finalSettings, isTemplateActive: false };
+        setConfig(updated);
+        handleAutoSave(updated);
+    };
    const [botLiveStatus, setBotLiveStatus] = useState('idle');
     const [liveProgressMsg, setLiveProgressMsg] = useState(''); // חיווי הטקסט שחזר
     const [timeLeft, setTimeLeft] = useState(null);            // הטיימר הסגול (סבב הבא) - חזר למקומו
@@ -287,6 +347,7 @@
             return updated;
         }); 
     };
+
         const handleAutoSave = async (updated) => { 
             await fetch('/api/save-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...updated, action: 'save_only' }) }); 
         };
@@ -334,11 +395,11 @@
             const isMor = config.activeEngines?.includes('mor_institute');
 
             if (isMor) {
-                // לוגיקה לשמירה והצגת נתונים של מכון מור
-                const searchType = config.morSettings?.useManualPath ? config.morSettings.category : (config.morSettings?.targetReferral || 'לא הוגדר טקסט לחיפוש');
+                // לוגיקה לשמירה והצגת נתונים של מכון מור (שליפה מדורגת של השדה המלא ביותר)
+                const searchType = config.morSettings?.targetOrgan || config.morSettings?.subCategory || config.morSettings?.category || config.morSettings?.targetReferral || 'לא הוגדר טקסט לחיפוש';
                 const areas = config.morSettings?.areaPriority?.length > 0 ? config.morSettings.areaPriority.join(', ') : 'לא נבחרו אזורים';
                 
-                autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | דוא"ל: ${config.email || 'לא הוזן'} | מכון מור | בדיקה: ${searchType} | אזורים: ${areas} | תאריך: ${datePart} | שעה: ${timePart}`;
+                autoName = `${config.familyMember || 'ללא שם'} | תז: ${config.userId || ''} | מכון מור | בדיקה: ${searchType} | תאריך: ${datePart} | שעה: ${timePart}`;
                 
                 confirmMessage = `לשמור תבנית חיפוש למכון מור?\n\n` +
                                 `👤 שם: ${config.familyMember || 'ללא שם'}\n` +
@@ -520,11 +581,14 @@
                 if (res.ok) {
                     setDbSearchResults(prev => prev.filter(t => t._id !== id));
                     
-                    // עדכון מיידי: אם מחקנו את התבנית שטעונה כרגע - נועלים את הכפתורים
-                    setConfig(prev => ({
-                        ...prev,
-                        isTemplateActive: false
-                    }));
+                  // אם מחקנו את התבנית שטעונה כרגע - מאפסים את הזיכרון שלה לגמרי
+                    if (config.loadedTemplateId === id) {
+                        setConfig(prev => ({
+                            ...prev,
+                            isTemplateActive: false,
+                            loadedTemplateId: null
+                        }));
+                    }
                 }
             } catch (err) {
                 console.error("Delete error:", err);
@@ -775,7 +839,7 @@ const specName = t.selectedSpecialization && CLALIT_SPECIALIZATIONS[t.selectedGr
     ? Object.values(CLALIT_SPECIALIZATIONS[t.selectedGroup]).find(s => String(s.id) === String(t.selectedSpecialization))?.name
     : "";
 
-const morTestType = t.morSettings?.useManualPath ? t.morSettings.category : t.morSettings?.targetReferral;
+const morTestType = t.morSettings?.targetOrgan || t.morSettings?.subCategory || t.morSettings?.category || t.morSettings?.targetReferral;
 
 // 2. ניקוי השורה השנייה מכל מה שכבר מופיע בצ'יפים (כדי למנוע כפילות)
 let infoContent = t.templateName;
@@ -986,13 +1050,16 @@ return (
                                         onClick={() => {
                                             if(confirm("לנקות את כל השדות ולנעול את החיפוש?")) {
                                                 const clearedConfig = {
-                                                userId: '', userCode: '', password: '', familyMember: '', email: '',
-                                                loginMode: 'password', selectedCities: [], includeSurrounding: true,
-                                                selectedDoctors: [], selectedGroup: '', selectedSpecialization: '',
-                                                insuranceType: 'הכל', endDate: '', runInLoop: false, loopFrequency: "10-15",
-                                                startTime: '08:00', endTime: '22:00', lastFoundDate: '', doctorDates: {},
-                                                isTemplateActive: false // איפוס סטטוס התבנית נועל את הכפתורים
-                                            };
+                                                    userId: '', userCode: '', password: '', familyMember: '', email: '',
+                                                    loginMode: 'password', selectedCities: [], includeSurrounding: true,
+                                                    selectedDoctors: [], selectedGroup: '', selectedSpecialization: '',
+                                                    insuranceType: 'הכל', endDate: '', runInLoop: false, loopFrequency: "10-15",
+                                                    startTime: '08:00', endTime: '22:00', lastFoundDate: '', doctorDates: {},
+                                                    morSettings: {}, // איפוס גם להגדרות מור
+                                                    activeEngines: ['clalit_specialist'],
+                                                    isTemplateActive: false,
+                                                    loadedTemplateId: null // הפקודה שמשחררת את כפתור ה"עדכן תבנית"
+                                                };
                                                 setConfig(clearedConfig);
                                                 handleAutoSave(clearedConfig);
                                             }
@@ -1016,9 +1083,6 @@ return (
                         <div className="p-3 border-l border-gray-100 flex flex-col gap-2">
                             <section className="bg-teal-50/40 border-2 border-teal-100 rounded-2xl p-3 shadow-sm">
                                 <div className="flex flex-col gap-3 mb-4">
-                                    <h2 className="text-xl font-black text-teal-800 flex items-center gap-2">
-                                        <span className="w-1.5 h-5 bg-teal-500 rounded-full"></span> יעדי סריקה פעילים:
-                                    </h2>
                                     <div className="flex flex-wrap gap-3 bg-white p-3 rounded-xl border border-teal-100 shadow-sm">
                                   {[
     { id: 'clalit_specialist', label: 'רפואה יועצת', icon: '🩺' },
@@ -1036,20 +1100,18 @@ return (
                 onChange={() => {
                     let newEngines;
                     if (isChecked) {
-                        // הסרה מהבחירה (רק אם יש יותר מאחד, כדי שלא יישאר ריק)
                         newEngines = config.activeEngines.filter(id => id !== engine.id);
                     } else {
-                        // הוספה לבחירה (כאן תוכל להחליט אם לאפשר ריבוי מנועים או רק אחד)
                         newEngines = [engine.id]; 
                     }
 
-                    const updated = { 
+                   const updated = { 
                         ...config, 
                         activeEngines: newEngines,
-                        // איפוס שדות רלוונטיים רק במעבר בין סוגי מנועים שונים
                         selectedGroup: isChecked ? config.selectedGroup : '', 
                         selectedSpecialization: isChecked ? config.selectedSpecialization : '',
-                        isTemplateActive: false 
+                        isTemplateActive: false,
+                        loadedTemplateId: null // מאפסים את ה-ID בעת החלפת מנוע כדי למנוע שמירה צולבת
                     };
                     
                     setConfig(updated);
@@ -1057,7 +1119,8 @@ return (
                 }}
                 className="w-5 h-5 accent-[#00a896]" 
             />
-            <span className={`text-sm font-black ${isChecked ? 'text-teal-900' : 'text-gray-500'}`}>
+            {/* הטקסט הוגדל כאן ל-text-lg */}
+            <span className={`text-lg font-black ${isChecked ? 'text-teal-900' : 'text-gray-500'}`}>
                 {engine.icon} {engine.label}
             </span>
         </label>
@@ -1147,75 +1210,84 @@ return (
                                     </>
                                 )}
 
-                                   {config.activeEngines?.includes('mor_institute') ? (
+                                  {config.activeEngines?.includes('mor_institute') ? (
         <div className="space-y-3">
-            {/* בחירת מסלול - מור */}
-            <div className="flex gap-2 p-1 bg-gray-100 rounded-xl mb-2">
-                <button 
-                                                    onClick={() => {
-                                                        const updated = {...config, morSettings: {...config.morSettings, useManualPath: false}, isTemplateActive: false};
-                                                        setConfig(updated); handleAutoSave(updated);
-                                                    }}
-                                                    className={`flex-1 py-1 text-xs font-bold rounded-lg transition-all ${!config.morSettings?.useManualPath ? 'bg-white shadow-sm text-teal-700' : 'text-gray-500'}`}
-                                                >חיפוש חופשי</button>
-                                                <button 
-                                                    onClick={() => {
-                                                        const updated = {...config, morSettings: {...config.morSettings, useManualPath: true}, isTemplateActive: false};
-                                                        setConfig(updated); handleAutoSave(updated);
-                                                    }}
-                                                    className={`flex-1 py-1 text-xs font-bold rounded-lg transition-all ${config.morSettings?.useManualPath ? 'bg-white shadow-sm text-teal-700' : 'text-gray-500'}`}
-                                                >ניווט קטגוריות</button>
-            </div>
-
-            {!config.morSettings?.useManualPath ? (
-                <div className="space-y-0.5">
-                    <label className="text-base font-bold text-gray-500 pr-1">שם הבדיקה (כפי שמופיע באתר)</label>
-                   <input 
-                                                        type="text"
-                                                        value={config.morSettings?.targetReferral || ""}
-                                                        onChange={(e) => {
-                                                            const updated = {...config, morSettings: {...config.morSettings, targetReferral: e.target.value}, isTemplateActive: false};
-                                                            setConfig(updated); handleAutoSave(updated);
-                                                        }}
-                                                        placeholder="למשל: מבחן מאמץ"
-                                                        className="w-full px-3 py-2 text-lg font-bold border border-gray-200 rounded-xl outline-none focus:border-[#00a896] bg-white"
-                                                    />
+            {/* ניווט מסלול חכם - מור */}
+            <div className="space-y-3 bg-amber-50/30 p-3 rounded-2xl border border-amber-100 mt-2 shadow-inner">
+                
+                {/* שדה זיהוי מדויק */}
+                <div className="space-y-1 mb-3 border-b border-amber-200/60 pb-4">
+                    <label className="text-base font-black text-amber-900 pr-1 opacity-90">טקסט ההפניה (לזיהוי מדויק בדף הבית)</label>
+                    <input 
+                        type="text"
+                        value={config.morSettings?.targetReferral || ""}
+                        onChange={(e) => {
+                            const updated = {...config, morSettings: {...config.morSettings, targetReferral: e.target.value}, isTemplateActive: false};
+                            setConfig(updated); handleAutoSave(updated);
+                        }}
+                        placeholder="למשל: א.ס דופלקס או מבחן מאמץ..."
+                        className="w-full px-3 py-2 text-lg font-bold border-2 border-white rounded-xl shadow-sm outline-none focus:border-amber-400 bg-white"
+                    />
                 </div>
-            ) : (
-                <>
-                    <div className="space-y-0.5">
-                        <label className="text-base font-bold text-gray-500 pr-1">סוג ביטוח</label>
+
+                {/* גריד של 2 עמודות עבור התפריטים */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                        <label className="text-base font-black text-amber-900 pr-1 opacity-90">1. סוג ביטוח / משלם</label>
                         <select 
-                                                            value={config.morSettings?.insuranceType || "כללית"}
-                                                            onChange={(e) => {
-                                                                const updated = {...config, morSettings: {...config.morSettings, insuranceType: e.target.value}, isTemplateActive: false};
-                                                                setConfig(updated); handleAutoSave(updated);
-                                                            }}
-                                                            className="w-full px-3 py-2 text-lg font-bold border border-gray-200 rounded-xl bg-white outline-none focus:border-[#00a896]"
-                                                        >
-                                                            <option>כללית</option>
-                                                            <option>כללית פלטינום או מושלם</option>
-                                                            <option>לקוח פרטי</option>
-                                                        </select>
-                                                    </div>
-                                                    <div className="space-y-0.5">
-                                                        <label className="text-base font-bold text-gray-500 pr-1">תחום בדיקה</label>
-                                                        <select 
-                                                            value={config.morSettings?.category || ""}
-                                                            onChange={(e) => {
-                                                                const updated = {...config, morSettings: {...config.morSettings, category: e.target.value}, isTemplateActive: false};
-                                                                setConfig(updated); handleAutoSave(updated);
-                                                            }}
-                                                            className="w-full px-3 py-2 text-lg font-bold border border-gray-200 rounded-xl bg-white outline-none focus:border-[#00a896]"
-                                                        >
-                            <option value="">בחר תחום...</option>
-                            {["מטיילים", "דימות:  אולטרסאונד / CT", "עיניים", "בריאות השד", "לב וכלי דם", "הולטרים", "ריאות", "EMG", "תינוקות פרקי ירכיים", "צפיפות עצם"].map(cat => (
-                                <option key={cat}>{cat}</option>
-                            ))}
+                            value={config.morSettings?.insuranceType || "כללית"}
+                            onChange={(e) => handleMorPathChange('insuranceType', e.target.value)}
+                            className="w-full px-3 py-2 text-lg font-bold border-2 border-white rounded-xl shadow-sm outline-none focus:border-amber-400 bg-white"
+                        >
+                            <option>כללית</option>
+                            <option>כללית פלטינום או מושלם</option>
+                            <option>לקוח פרטי</option>
                         </select>
                     </div>
-                </>
-            )}
+
+                    {getMorOptions('category', config.morSettings).length > 0 && (
+                        <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+                            <label className="text-base font-black text-amber-900 pr-1 opacity-90">2. תחום בדיקה</label>
+                            <select 
+                                value={config.morSettings?.category || ""}
+                                onChange={(e) => handleMorPathChange('category', e.target.value)}
+                                className="w-full px-3 py-2 text-lg font-bold border-2 border-white rounded-xl shadow-sm outline-none focus:border-amber-400 bg-white"
+                            >
+                                <option value="">בחר תחום...</option>
+                                {getMorOptions('category', config.morSettings).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                        </div>
+                    )}
+
+                    {getMorOptions('subCategory', config.morSettings).length > 1 && (
+                        <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+                            <label className="text-base font-black text-amber-900 pr-1 opacity-90">3. תת-קטגוריה</label>
+                            <select 
+                                value={config.morSettings?.subCategory || ""}
+                                onChange={(e) => handleMorPathChange('subCategory', e.target.value)}
+                                className="w-full px-3 py-2 text-lg font-bold border-2 border-white rounded-xl shadow-sm outline-none focus:border-amber-400 bg-white"
+                            >
+                                <option value="">בחר...</option>
+                                {getMorOptions('subCategory', config.morSettings).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                        </div>
+                    )}
+
+                    {getMorOptions('targetOrgan', config.morSettings).length > 1 && (
+                        <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+                            <label className="text-base font-black text-amber-900 pr-1 opacity-90">4. איבר</label>
+                            <select 
+                                value={config.morSettings?.targetOrgan || ""}
+                                onChange={(e) => handleMorPathChange('targetOrgan', e.target.value)}
+                                className="w-full px-3 py-2 text-lg font-bold border-2 border-amber-200 rounded-xl shadow-md outline-none focus:border-amber-500 bg-amber-50 text-amber-900"
+                            >
+                                <option value="">בחר בדיקה...</option>
+                                {getMorOptions('targetOrgan', config.morSettings).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                        </div>
+                    )}
+                </div>
+            </div>
 
             <div className="space-y-1.5 mt-2">
                 <label className="text-base font-bold text-gray-500 pr-1">אזורי סריקה (לפי סדר עדיפות)</label>
@@ -1272,40 +1344,8 @@ return (
                                 </div>
           </section>
                         
-                       {/* חיווי סטטוס בזמן אמת - נשאר גלוי גם בסיום כדי להציג את הודעת הסיכום */}
-                        {liveProgressMsg && (
-                            <div className={`mt-3 bg-white border-2 border-teal-400 rounded-2xl p-3 shadow-md flex items-center gap-3 ${botLiveStatus === 'active' && !liveProgressMsg.includes('הסתיימה') ? 'animate-pulse' : ''}`}>
-                                <div className={`w-8 h-8 border-4 border-teal-200 border-t-teal-600 rounded-full shrink-0 ${botLiveStatus === 'active' && !liveProgressMsg.includes('הסתיימה') ? 'animate-spin' : ''}`}></div>
-                                <div className="flex-1">
-                                    <p className="text-sm font-bold text-gray-500 mb-0.5">סטטוס סריקה:</p>
-                                    <div className="flex items-center justify-between gap-4">
-                                        <div className="flex-1">
-                                            <p className="text-xl font-black text-teal-900 leading-tight">{liveProgressMsg}</p>
-                                        </div>
-                                        
-                                        {/* טיימר סריקה אלגנטי ומעוצב */}
-                                        {botLiveStatus === 'active' && scanTimeRemaining > 0 && (
-                                            <div className="flex flex-col items-end shrink-0">
-                                                <div className="bg-teal-800 text-white px-4 py-1 rounded-full font-black text-xl shadow-md flex items-center gap-2 min-w-[90px] justify-center">
-                                                    <span className="text-base animate-pulse">⏱️</span>
-                                                    {formatTime(scanTimeRemaining)}
-                                                </div>
-                                                {/* חיווי הערכה קטן רק כשמדובר בזמן ראשוני */}
-                                                {liveProgressMsg && liveProgressMsg.includes('*') && (
-                                                    <span className="text-[10px] text-teal-600 font-bold opacity-70 mt-1">זמן משוער</span>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                    {/* הערה המופיעה רק כשהבוט משתמש בזמן ברירת מחדל אופטימי */}
-                                    {liveProgressMsg && liveProgressMsg.includes('*') && (
-                                        <p className="text-[11px] text-gray-400 mt-1 font-bold animate-pulse text-right">* מבוסס על הערכת זמן ראשונית</p>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
 
+                        </div>
                     {/* Column 3: Scheduling (Left) */}
                         <div className="p-3 flex flex-col gap-2">
                             <section className="bg-purple-50/40 border-2 border-purple-100 rounded-2xl p-3 shadow-sm">
@@ -1423,6 +1463,39 @@ return (
                                     📊 הורד מצגת דוח PDF
                                 </a>
                             </div>
+
+                            {/* חיווי סטטוס בזמן אמת - הועבר לעמודה השמאלית */}
+                            {liveProgressMsg && (
+                                <div className={`mt-2 bg-white border-2 border-teal-400 rounded-2xl p-3 shadow-md flex items-center gap-3 ${botLiveStatus === 'active' && !liveProgressMsg.includes('הסתיימה') ? 'animate-pulse' : ''}`}>
+                                    <div className={`w-8 h-8 border-4 border-teal-200 border-t-teal-600 rounded-full shrink-0 ${botLiveStatus === 'active' && !liveProgressMsg.includes('הסתיימה') ? 'animate-spin' : ''}`}></div>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-bold text-gray-500 mb-0.5">סטטוס סריקה:</p>
+                                        <div className="flex items-center justify-between gap-4">
+                                            <div className="flex-1">
+                                                <p className="text-xl font-black text-teal-900 leading-tight">{liveProgressMsg}</p>
+                                            </div>
+                                            
+                                            {/* טיימר סריקה אלגנטי ומעוצב */}
+                                            {botLiveStatus === 'active' && scanTimeRemaining > 0 && (
+                                                <div className="flex flex-col items-end shrink-0">
+                                                    <div className="bg-teal-800 text-white px-4 py-1 rounded-full font-black text-xl shadow-md flex items-center gap-2 min-w-[90px] justify-center">
+                                                        <span className="text-base animate-pulse">⏱️</span>
+                                                        {formatTime(scanTimeRemaining)}
+                                                    </div>
+                                                    {/* חיווי הערכה קטן רק כשמדובר בזמן ראשוני */}
+                                                    {liveProgressMsg && liveProgressMsg.includes('*') && (
+                                                        <span className="text-[10px] text-teal-600 font-bold opacity-70 mt-1">זמן משוער</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                        {/* הערה המופיעה רק כשהבוט משתמש בזמן ברירת מחדל אופטימי */}
+                                        {liveProgressMsg && liveProgressMsg.includes('*') && (
+                                            <p className="text-[11px] text-gray-400 mt-1 font-bold animate-pulse text-right">* מבוסס על הערכת זמן ראשונית</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
