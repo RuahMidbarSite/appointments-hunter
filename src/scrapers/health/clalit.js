@@ -24,6 +24,7 @@ function updateLiveProgress(msg, seconds = null) {
         }
     } catch (e) {}
 }
+
 // פונקציה לזיהוי ולהתאוששות מדף שגיאה של כללית
 async function handleResponseSorry(page, targetUrl) {
     const currentUrl = page.url();
@@ -71,7 +72,7 @@ async function loginWithSMS(page, config) {
     const captchaPath = path.join('.', 'captcha_temp.png');
     try {
         // מנסה למצוא את אלמנט הקפצ'ה לפי סלקטורים אפשריים
-const captchaEl = await page.$(
+        const captchaEl = await page.$(
             '#c_general_login_ctl00_cphbody__loginview_captchalogin_CaptchaImage'
         );
         if (captchaEl) {
@@ -117,7 +118,7 @@ const captchaEl = await page.$(
 
     // מזין את הקפצ'ה בשדה המתאים
     try {
-const captchaInput = await page.$('#ctl00_cphBody__loginView_tbCaptchaLogin');
+        const captchaInput = await page.$('#ctl00_cphBody__loginView_tbCaptchaLogin');
         if (captchaInput) {
             await captchaInput.click({ clickCount: 3 });
             await captchaInput.type(captchaText, { delay: 100 });
@@ -166,73 +167,97 @@ async function sendEmailNotification(docName, city, dateStr, targetEmail) {
 async function runClalit(page) {
     setBotStatus('active');
 
-    // וידוא חיבור אקטיבי ל-DB בתחילת כל סבב למניעת Timeout
-    if (mongoose.connection.readyState !== 1) {
-        console.log("🔄 [DB-RECONNECT] מזהה חיבור לא פעיל, מתחבר כעת...");
-        try {
-            await mongoose.connect(process.env.MONGODB_URI);
-            console.log("✅ [DB-RECONNECT] החיבור חודש בהצלחה.");
-        } catch (err) {
-            console.error("❌ [DB-RECONNECT] נכשלה התחברות ל-DB:", err.message);
-        }
-    }
-
-    const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-    // --- הכנת מנגנון הלמידה עבור התחברות וסריקה ---
-    const learningPath = path.join(__dirname, '../../utils/bot_learning_data.json');
-    let scanHistory = {};
-    try { 
-        if (fs.existsSync(learningPath)) {
-            scanHistory = JSON.parse(fs.readFileSync(learningPath, 'utf8')); 
-        }
-    } catch(e) { console.log("⚠️ שגיאה בקריאת קובץ הלמידה"); }
-    // משתנה שישמור את התור המוקדם ביותר שנמצא *רק בסבב הנוכחי* לצורך שליחת מייל בסיום
-    let bestApptForEmailThisRun = null;
-    const stats = { startTime: new Date() };
-
     const MAIN_URL = 'https://e-services.clalit.co.il/OnlineWeb/Services/Appointments/AppointmentsSpecials.aspx';
-    console.log("--- מתחיל סריקה עבור כללית (מצב Stealth פעיל) ---");
-    updateLiveProgress("🚀 מתחיל סבב סריקה חדש...");
 
     try {
+        if (mongoose.connection.readyState !== 1) {
+            try {
+                await mongoose.connect(process.env.MONGODB_URI);
+                console.log("✅ [DB-RECONNECT] החיבור חודש בהצלחה.");
+            } catch (err) {
+                console.error("❌ [DB-RECONNECT] נכשלה התחברות ל-DB:", err.message);
+            }
+        }
+
+        const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+        const engines = config.activeEngines || ['clalit_specialist'];
+
+        if (engines.includes('mor_institute')) {
+            console.log("🧪 זוהתה בקשה למכון מור - מנווט ישירות למור...");
+            const morResult = await navigateMor(page, config);
+            
+            if (morResult) {
+                const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
+                updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
+                
+                try {
+                    await MorSearchTemplate.updateOne(
+                        { userId: config.userId },
+                        { $set: { lastBestFound: foundStr, bestBranch: morResult.branch, bestDate: morResult.date, bestTime: morResult.time, provider: 'MACHON_MOR' } }, 
+                        { upsert: true }
+                    );
+                } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
+
+                const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                currentConfig.lastFoundDate = foundStr;
+                fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+
+                try {
+                    await sendEmailNotification(`מכון מור - ${morResult.branch}`, morResult.area, `${morResult.date} בשעה ${morResult.time}`, config.email);
+                } catch (e) { console.error("⚠️ שגיאה בשליחת מייל מור:", e.message); }
+            } else {
+                console.log(`ℹ️ הסבב הסתיים. לא נמצאו תורים במכון מור.`);
+                updateLiveProgress("ℹ️ סבב מכון מור הסתיים - לא נמצאו תורים.");
+            }
+            
+            console.log("🏁 סבב מכון מור הסתיים. עובר להמתנה לסבב הבא...");
+            return; 
+        }
+
+        const learningPath = path.join(__dirname, '../../utils/bot_learning_data.json');
+        let scanHistory = {};
+        try { if (fs.existsSync(learningPath)) scanHistory = JSON.parse(fs.readFileSync(learningPath, 'utf8')); } catch(e) {}
+        
+        let bestApptForEmailThisRun = null;
+        const stats = { startTime: new Date() };
+
+        console.log("--- מתחיל סריקה עבור כללית ---");
+        updateLiveProgress("🚀 מתחיל סבב סריקה חדש...");
         const currentUrlAtStart = page.url();
         console.log(`🌐 [START] כתובת בתחילת הסבב: ${currentUrlAtStart}`);
         
         if (currentUrlAtStart.includes('ResponseSorry') || currentUrlAtStart === 'about:blank') {
-            console.log("🔄 מתחיל מדף שגיאה/ריק – מנווט ל-MAIN_URL לפני בדיקת לוגין...");
+            console.log("🔄 מתחיל מדף שגיאה/ריק - מנווט ל-MAIN_URL לפני בדיקת לוגין...");
             await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
             await page.waitForTimeout(3000);
-            console.log(`🌐 [AFTER-GOTO] כתובת אחרי ניווט: ${page.url()}`);
         }
 
         const isLoggedIn = await page.$('text="שירותי האון־ליין"').catch(() => null);
         console.log(`🔐 [LOGIN-CHECK] מחובר? ${isLoggedIn ? 'כן' : 'לא'}`);
         
         if (!isLoggedIn) {
-    const currentUrl = page.url();
-    if (!currentUrl.includes('e-services.clalit.co.il')) {
-        console.log("🛡️ לא מזוהה סשן פעיל ולא על אתר כללית – מנווט...");
-        await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
-        await handleResponseSorry(page, MAIN_URL);
-    } else {
-        console.log("🛡️ לא מחובר אך כבר על אתר כללית – לא מרענן.");
-    }
-} else {
-    console.log("⚡ נמצא סשן פעיל! ממשיך לסריקה ללא לוגין מחדש.");
-}
+            const currentUrl = page.url();
+            if (!currentUrl.includes('e-services.clalit.co.il')) {
+                console.log("🛡️ לא מזוהה סשן פעיל ולא על אתר כללית - מנווט...");
+                await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
+                await handleResponseSorry(page, MAIN_URL);
+            } else {
+                console.log("🛡️ לא מחובר אך כבר על אתר כללית - לא מרענן.");
+            }
+        } else {
+            console.log("⚡ נמצא סשן פעיל! ממשיך לסריקה ללא לוגין מחדש.");
+        }
 
         const idField = '#ctl00_cphBody__loginView_tbUserId';
         const needsLogin = await page.waitForSelector(idField, { visible: true, timeout: 5000 }).catch(() => null);
 
         if (needsLogin) {
             const loginMode = config.loginMode || 'password';
-            console.log(`🔑 נדרש לוגין – מצב: ${loginMode === 'sms' ? 'קוד חד-פעמי SMS' : 'קוד משתמש וסיסמה'}`);
+            console.log(`🔑 נדרש לוגין - מצב: ${loginMode === 'sms' ? 'קוד חד-פעמי SMS' : 'קוד משתמש וסיסמה'}`);
 
-            // הגדרת מפתח היסטורי לפי שיטת ההתחברות
             const loginKey = `login_method_${loginMode}`;
             const loginStartTime = Date.now();
             
-            // שליפת זמן מההיסטוריה או שימוש בברירת מחדל (SMS: 60s, סיסמה: 20s)
             const defaultLoginTime = loginMode === 'sms' ? 60 : 20;
             const estimatedLoginTime = scanHistory[loginKey] || defaultLoginTime;
             const isDefaultLogin = !scanHistory[loginKey];
@@ -433,13 +458,8 @@ async function runClalit(page) {
                     try {
                         await MorSearchTemplate.updateOne(
                             { userId: config.userId },
-                            { 
-                                $set: { 
-                                    lastBestFound: foundStr, bestBranch: morResult.branch, 
-                                    bestDate: morResult.date, bestTime: morResult.time,     
-                                    provider: 'MACHON_MOR'
-                                } 
-                            }, { upsert: true }
+                            { $set: { lastBestFound: foundStr, bestBranch: morResult.branch, bestDate: morResult.date, bestTime: morResult.time, provider: 'MACHON_MOR' } }, 
+                            { upsert: true }
                         );
                     } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
 
@@ -450,8 +470,15 @@ async function runClalit(page) {
                     try {
                         await sendEmailNotification(`מכון מור - ${morResult.branch}`, morResult.area, `${morResult.date} בשעה ${morResult.time}`, config.email);
                     } catch (e) { console.error("⚠️ שגיאה בשליחת מייל מור:", e.message); }
+                } else {
+                    console.log(`ℹ️ הסבב הסתיים. לא נמצאו תורים במכון מור.`);
+                    updateLiveProgress("ℹ️ סבב מכון מור הסתיים - לא נמצאו תורים.");
                 }
-                return; 
+                
+                // במקום לסיים עם return, אנחנו מאפשרים לקוד להמשיך לסוף הפונקציה 
+                // שם נמצא מנגנון ההמתנה והטיימר (finally)
+                console.log("🏁 סבב מכון מור הסתיים. עובר להמתנה לסבב הבא...");
+                return; // זה יקפוץ ישירות לבלוק ה-finally ב-runClalit
             }
             
             if (engines.includes('clalit_hospital')) {
@@ -543,7 +570,6 @@ async function runClalit(page) {
         const sentInThisRun = new Set();
         const activeDoctorsNames = (config.selectedDoctorNames && config.selectedDoctorNames.length > 0) ? config.selectedDoctorNames : [];
         let citiesToSearch = config.selectedCities || [];
-        const engines = config.activeEngines || ['clalit_specialist'];
 
         if (engines.includes('clalit_hospital') && citiesToSearch.length === 0) {
             citiesToSearch = ['בילינסון']; 
@@ -643,6 +669,20 @@ async function runClalit(page) {
             await page.waitForTimeout(1500);
             await target.click('#searchBtnSpec');
             await page.waitForTimeout(8000); 
+
+            // --- תוספת חדשה: בדיקת מסך לבן/קריסה למניעת המשך הלולאה על ריק ---
+            try {
+                const currentUrl = page.url();
+                if (currentUrl === 'about:blank') {
+                    console.log('⚠️ [CRASH] זוהה מסך לבן (about:blank) לאחר החיפוש! יוזם אתחול מיידי...');
+                    throw new Error('BlankPageCrash');
+                }
+            } catch (err) {
+                if (err.message.includes('BlankPageCrash') || err.message.includes('detached')) {
+                    throw err; // זורק את השגיאה החוצה כדי שהמערכת תתחיל סבב חדש מיד
+                }
+            }
+            // ---------------------------------------------------------
 
             if (await handleResponseSorry(page, MAIN_URL)) {
                 console.log('🔄 הדף חזר לאחר שגיאה – מפסיק חיפוש נוכחי וממשיך לפריט הבא.');
@@ -933,25 +973,38 @@ async function runClalit(page) {
                 } catch (e) { console.error("⚠️ שגיאה בשליחת המייל המסכם:", e.message); }
             } else {
                 console.log(`ℹ️ הסבב הסתיים. נמצאו תורים, אך אף אחד מהם לא מקדים את התור שכבר מופיע בדשבורד (${lastDBDateStr}). לא נשלח מייל.`);
+                updateLiveProgress("ℹ️ הסבב הסתיים - אין תור מקדים חדש.");
             }
+        } else {
+            console.log(`ℹ️ הסבב הסתיים לחלוטין ולא נמצאו תורים כלל.`);
+            updateLiveProgress("ℹ️ הסבב הסתיים ללא תורים חדשים.");
         }
    } catch (e) {
         console.error("❌ שגיאה במהלך הבוט:", e.message);
-        const currentUrl = page.url();
-        if (currentUrl.includes('ResponseSorry') || e.message.includes('Timeout')) {
-            console.log('🔄 זוהתה שגיאת סשן – מנקה עוגיות ומתחיל סבב חדש מיד...');
+        let currentUrl = '';
+        try { currentUrl = page.url(); } catch (err) {} 
+        
+        if (currentUrl.includes('ResponseSorry') || currentUrl === 'about:blank' || 
+            e.message.includes('Timeout') || e.message.includes('detached') || 
+            e.message.includes('destroyed') || e.message.includes('BlankPageCrash')) {
+            
+            console.log('🔄 זוהתה קריסת עמוד (מסך לבן/שגיאת סשן) – מנקה עוגיות ומתחיל סבב חדש מיד וללא טיימר...');
             try {
                 await page.context().clearCookies();
                 await page.goto(MAIN_URL, { waitUntil: 'networkidle' });
-            } catch (e) {}
-            setBotStatus('idle');
-            return runClalit(page);
+            } catch (navErr) {}
+            
+            // מדליקים דגל שמונע מהטיימר ב-finally לעבוד בסבב הזה
+            page.__skipTimer = true;
+            setTimeout(() => runClalit(page), 100);
+            return; 
         }
     } finally {
         setBotStatus('idle');
         const configRefresh = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
         
-        if (configRefresh.runInLoop) {
+        // הטיימר מופעל רק אם אנחנו בלולאה ואין בקשת התעלמות בגלל קריסה
+        if (configRefresh.runInLoop && !page.__skipTimer) {
             updateLiveProgress("⏳ בהמתנה לזמן הסבב הבא...");
             const frequencyRange = configRefresh.loopFrequency || "10-15";
             console.log(`⏳ סבב הסתיים. הדפדפן נשאר פתוח. ממתין ${frequencyRange} דקות...`);
@@ -1003,10 +1056,14 @@ async function runClalit(page) {
             const finalConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
             if (finalConfig.runInLoop) {
                 console.log("🔄 מתחיל סבב חדש – נשאר בתוך האתר ללא רענון...");
+                page.__skipTimer = false; // מנקים את הדגל לסבב הבא
                 return runClalit(page);
             }
             console.log("🏁 הבוט הופסק בהצלחה על ידי המשתמש.");
         }
+        
+        // איפוס הדגל ליתר ביטחון למקרה של עצירה יזומה
+        page.__skipTimer = false;
     } 
 } 
 

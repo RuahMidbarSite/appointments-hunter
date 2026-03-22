@@ -10,39 +10,39 @@
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "58",
-  "selectedSpecialization": "58",
+  "selectedGroup": "",
+  "selectedSpecialization": "",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "08:40 - מור: סניף ירושלים קרדיולוגיה (23.03.2026)",
+  "lastFoundDate": "טרם נמצאו תורים",
   "doctorDates": {},
   "activeEngines": [
-    "mor_institute"
+    "clalit_specialist"
   ],
-  "isTemplateActive": true,
+  "isTemplateActive": false,
   "liveProgress": "🛑 עצרתי הכל",
-  "selectedDoctorNames": [],
-  "lastBestFound": "",
-  "nextRunTime": null,
-  "botStatus": "idle",
-  "scanTimeRemaining": null,
+  "nextRunTime": 1774170100364,
   "morSettings": {
     "useManualPath": true,
     "category": "דימות: אולטרסאונד / CT",
     "areaPriority": [
-      "ירושלים והסביבה"
+      "מרכז"
     ],
     "phoneSuffix": "6554868"
   },
-  "createdAt": "2026-03-21T18:08:23.905Z",
   "bestBranch": "סניף ירושלים קרדיולוגיה",
   "bestDate": "08:40",
   "bestTime": "23.03.2026",
+  "createdAt": "2026-03-22T06:24:07.752Z",
   "provider": "MACHON_MOR",
+  "lastBestFound": "",
+  "botStatus": "idle",
+  "scanTimeRemaining": null,
   "lastOtp": "",
-  "otpReceivedAt": 1774113827614
+  "otpReceivedAt": 1774163317883,
+  "selectedDoctorNames": []
 }

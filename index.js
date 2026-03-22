@@ -40,51 +40,10 @@ async function main() {
         if (fs.existsSync(configPath)) {
             config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         }
-
-        // 2. צומת הדרכים
-        if (config.activeEngines && config.activeEngines.includes('mor_institute')) {
-            console.log("🧪 זוהתה בקשה לסריקת מכון מור - מנווט למור...");
-            
-            const morResult = await navigateMor(page, config);
-            
-            if (morResult) {
-                // פורמט המקף (-) קריטי כדי שהדשבורד ידע להפריד בין התאריך למקום
-                const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
-                
-                // א. חיבור למסד הנתונים (חובה בתוך התהליך של index.js)
-                try {
-                    if (mongoose.connection.readyState !== 1) {
-                        await mongoose.connect(process.env.MONGODB_URI);
-                    }
-                    
-                    const MorSearchTemplate = require('./src/models/MorSearchTemplate');
-                    await MorSearchTemplate.updateOne(
-                        { userId: config.userId },
-                        { $set: { 
-                            lastBestFound: foundStr,
-                            bestBranch: morResult.branch,
-                            bestDate: morResult.date,
-                            bestTime: morResult.time,
-                            provider: 'MACHON_MOR'
-                        }},
-                        { upsert: true }
-                    );
-                    console.log("💾 [DB-SUCCESS] הנתונים נשמרו במסד הנתונים.");
-                } catch (dbErr) {
-                    console.error("❌ [DB-ERROR] חיבור או שמירה ל-DB נכשלו:", dbErr.message);
-                }
-
-                // ב. עדכון קובץ ה-Config (לסנכרון ה-UI)
-                config.lastFoundDate = foundStr;
-                config.liveProgress = `✅ נמצא תור! ${foundStr}`;
-                fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-                console.log("🎨 [UI-SYNC] הקוביה הצהובה עודכנה.");
-            }
-        } else {
-            console.log("🩺 זוהתה בקשה לסריקת כללית - מנווט לכללית...");
-            await runClalit(page);
-        }
-
+        // 2. הפעלה דרך המנוע המרכזי (תומך בלולאה וטיימר לשני המסלולים)
+        console.log("🚀 מפעיל מנוע סריקה מרכזי...");
+        await runClalit(page);
+        
         console.log("-----------------------------------------");
         console.log("✅ הסריקה הסתיימה. הדפדפן יישאר פתוח כעת.");
         await new Promise(() => {}); 
