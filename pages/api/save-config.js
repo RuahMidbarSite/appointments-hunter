@@ -156,6 +156,23 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ message: 'Saved to DB' });
       }
 
+      // עדכון תבנית קיימת ב-DB לפי המזהה שלה (ID)
+      if (req.body.action === 'update_template') {
+          const { templateId, data } = req.body;
+          const { templateName, ...configData } = data;
+          
+          const isMor = configData.activeEngines && configData.activeEngines.includes('mor_institute');
+          const TargetModel = isMor ? MorSearchTemplate : SearchTemplate;
+
+          await TargetModel.findByIdAndUpdate(
+              templateId,
+              { ...configData, templateName, updatedAt: new Date() },
+              { new: true }
+          );
+          console.log(`✅ תבנית עריכה עודכנה בהצלחה ב-DB (ID: ${templateId})`);
+          return res.status(200).json({ message: 'Template updated successfully' });
+      }
+
       // מחיקת תבנית מה-DB
       if (req.body.action === 'delete_template') {
           const { id } = req.body;

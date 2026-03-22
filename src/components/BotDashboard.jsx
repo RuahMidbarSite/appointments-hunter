@@ -186,7 +186,8 @@
         selectedGroup: '', selectedSpecialization: '', insuranceType: 'הכל', 
         endDate: '', runInLoop: false, loopFrequency: "10-15",
         startTime: '08:00', endTime: '22:00', lastFoundDate: '', doctorDates: {},
-        activeEngines: ['clalit_specialist'] // הגדרת מנוע ברירת מחדל
+        activeEngines: ['clalit_specialist'],
+        loadedTemplateId: null // שדה חדש לשמירת ה-ID של התבנית שנטענה
         });
 
    const [botLiveStatus, setBotLiveStatus] = useState('idle');
@@ -381,7 +382,12 @@
                                     `🕒 שעה: ${timePart}`;
             }
 
-            if (!confirm(confirmMessage)) return;
+           // החלטה האם מדובר בעדכון או שמירה חדשה
+            const isUpdateAction = config.loadedTemplateId && !config.isTemplateActive;
+            const actionType = isUpdateAction ? 'update_template' : 'save_template_to_db';
+            const finalConfirmMsg = isUpdateAction ? "האם לעדכן את התבנית הקיימת בנתונים החדשים?" : confirmMessage;
+
+            if (!confirm(finalConfirmMsg)) return;
 
     try {
                 // יצירת עותק נקי של ההגדרות עבור מסד הנתונים בלבד
@@ -395,7 +401,8 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        action: 'save_template_to_db', 
+                        action: actionType,
+                        templateId: config.loadedTemplateId, // יישלח רק אם מדובר בעדכון
                         data: { 
                             ...cleanConfigForDB, 
                             templateName: autoName,
@@ -813,14 +820,15 @@ return (
     }
 
     const updatedConfig = { 
-        ...config, 
-        ...cleanData, 
-        activeEngines: cleanData.activeEngines || ['clalit_specialist'],
-        isTemplateActive: true 
-    };
-    setConfig(updatedConfig); 
-    handleAutoSave(updatedConfig);
-    setDbSearchResults([]); 
+                ...config, 
+                ...cleanData, 
+                activeEngines: cleanData.activeEngines || ['clalit_specialist'],
+                isTemplateActive: true,
+                loadedTemplateId: _id
+            };
+            setConfig(updatedConfig); 
+            handleAutoSave(updatedConfig);
+            setDbSearchResults([]);
 }}
     >
         {/* שורה 1: צ'יפים צבעוניים */}
@@ -835,19 +843,17 @@ return (
                     <span className="text-base font-bold text-blue-600">{t.userId}</span>
                 </div>
 
-                {/* צ'יפ סוג מנוע */}
-                {t.activeEngines && t.activeEngines.length > 0 && (
-                    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
-                        ${t.activeEngines.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
-                          t.activeEngines.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
-                          'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-                        <span>
-                            {t.activeEngines.includes('mor_institute') ? '🧪 מכון מור' : 
-                             t.activeEngines.includes('clalit_hospital') ? '🏥 בתי חולים' : 
-                             '🩺 רפואה יועצת'}
-                        </span>
-                    </div>
-                )}
+                {/* צ'יפ סוג מנוע (מופיע תמיד ומוגדר כברירת מחדל לאתר כללית) */}
+                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
+                    ${t.activeEngines?.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
+                      t.activeEngines?.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
+                      'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                    <span>
+                        {t.activeEngines?.includes('mor_institute') ? '🧪 מכון מור' : 
+                         t.activeEngines?.includes('clalit_hospital') ? '🏥 בתי חולים' : 
+                         '🌐 אתר כללית'}
+                    </span>
+                </div>
 
                 {/* צ'יפ תחום / סוג בדיקה (צבעוני גם למור) */}
                 {(groupLabel || morTestType) && (
@@ -929,19 +935,17 @@ return (
     <span className="text-base font-bold text-blue-600">{t.userId}</span>
 </div>
 
-{/* צ'יפ סוג מנוע חדש */}
-{t.activeEngines && t.activeEngines.length > 0 && (
-    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
-        ${t.activeEngines.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
-          t.activeEngines.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
-          'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-        <span>
-            {t.activeEngines.includes('mor_institute') ? '🧪 מכון מור' : 
-             t.activeEngines.includes('clalit_hospital') ? '🏥 בתי חולים' : 
-             '🩺 רפואה יועצת'}
-        </span>
-    </div>
-)}
+{/* צ'יפ סוג מנוע חדש (מופיע תמיד ומוגדר כברירת מחדל לאתר כללית) */}
+<div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
+    ${t.activeEngines?.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
+      t.activeEngines?.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
+      'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+    <span>
+        {t.activeEngines?.includes('mor_institute') ? '🧪 מכון מור' : 
+         t.activeEngines?.includes('clalit_hospital') ? '🏥 בתי חולים' : 
+         '🌐 אתר כללית'}
+    </span>
+</div>
 
 {groupLabel && (
     <div className="flex items-center gap-1.5 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
@@ -1000,9 +1004,9 @@ return (
                                     </button>
                                     <button 
                                         onClick={saveToDB}
-                                        className="w-2/3 bg-[#00a896] text-white py-1.5 rounded-xl font-black text-lg hover:bg-[#008f80] transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                                        className={`w-2/3 text-white py-1.5 rounded-xl font-black text-lg transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 ${config.loadedTemplateId && !config.isTemplateActive ? 'bg-orange-500 hover:bg-orange-600' : 'bg-[#00a896] hover:bg-[#008f80]'}`}
                                     >
-                                        💾 שמור ל-DB
+                                        {config.loadedTemplateId && !config.isTemplateActive ? '🆙 עדכן תבנית' : '💾 שמור תבנית חיפוש'}
                                     </button>
                                 </div>
                             </div>
@@ -1087,14 +1091,17 @@ return (
                                                         firstSpec = CLALIT_SPECIALIZATIONS[groupId]?.[0]?.id || '';
                                                     }
 
-                                                    setConfig({
+                                                    const updated = {
                                                         ...config, 
                                                         selectedGroup: groupId, 
                                                         selectedSpecialization: String(firstSpec), 
                                                         selectedDoctors: [],
-                                                        selectedDoctorNames: []
-                                                    });
-                                                }} 
+                                                        selectedDoctorNames: [],
+                                                        isTemplateActive: false // ביטול הסטטוס הפעיל
+                                                    };
+                                                    setConfig(updated);
+                                                    handleAutoSave(updated); // שומר ברקע כדי שהכפתורים יינעלו גם אחרי רענון
+                                                }}
                                                 placeholder={config.activeEngines?.includes('clalit_hospital') ? "בחר סוג בדיקה..." : "בחר תחום..."}
                                                 isObject 
                                                 isMulti={false} 
@@ -1113,7 +1120,11 @@ return (
                                                     : (CLALIT_SPECIALIZATIONS[config.selectedGroup] ? Object.values(CLALIT_SPECIALIZATIONS[config.selectedGroup]).map(s => ({ id: String(s.id), label: s.name })) : [])
                                                 } 
                                                 selected={config.selectedSpecialization ? [String(config.selectedSpecialization)] : []} 
-                                                onChange={(val) => setConfig({...config, selectedSpecialization: val[0], selectedDoctors: [], selectedDoctorNames: []})} 
+                                                onChange={(val) => {
+                                                    const updated = {...config, selectedSpecialization: val[0], selectedDoctors: [], selectedDoctorNames: [], isTemplateActive: false};
+                                                    setConfig(updated);
+                                                    handleAutoSave(updated);
+                                                }}
                                                 placeholder={config.activeEngines?.includes('clalit_hospital') ? "בחר איבר מטרה..." : "בחר מקצוע..."}
                                                isObject 
                                             isMulti={false} 
@@ -1241,13 +1252,17 @@ return (
                                     {!config.activeEngines?.includes('mor_institute') && (
                                         <div className="flex items-center justify-between bg-white p-2 rounded-2xl border border-teal-100">
                                             <label className="flex items-center gap-2 text-lg font-bold text-gray-600 cursor-pointer leading-none">
-                                                <input type="checkbox" checked={config.includeSurrounding} onChange={(e) => setConfig({...config, includeSurrounding: e.target.checked})} className="w-5 h-5 accent-[#00a896]" /> 
+                                                <input type="checkbox" checked={config.includeSurrounding} onChange={(e) => {
+                                                    const updated = {...config, includeSurrounding: e.target.checked, isTemplateActive: false};
+                                                    setConfig(updated);
+                                                    handleAutoSave(updated);
+                                                }} className="w-5 h-5 accent-[#00a896]" />
                                                 כולל יישובים בסביבה
                                             </label>
                                             <div className="flex gap-2">
                                                 {['הכל', 'כללית', 'מושלם'].map(t => (
                                                     <label key={t} className="flex items-center gap-1.5 cursor-pointer text-base font-bold text-gray-500 leading-none">
-                                                        <input type="radio" name="ins" value={t} checked={config.insuranceType === t} onChange={handleChange} className="w-4 h-4 accent-[#00a896]" /> 
+                                                        <input type="radio" name="insuranceType" value={t} checked={config.insuranceType === t} onChange={handleChange} className="w-4 h-4 accent-[#00a896]" /> 
                                                         {t}
                                                     </label>
                                                 ))}
