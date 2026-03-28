@@ -5,11 +5,13 @@
   "familyMember": "עמרי",
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "sms",
-  "selectedCities": [],
+  "selectedCities": [
+    "חיפה"
+  ],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "61",
-  "selectedSpecialization": "61",
+  "selectedGroup": "58",
+  "selectedSpecialization": "58",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
@@ -23,7 +25,7 @@
   ],
   "loadedTemplateId": "69c7888eac68086ed28b8ce1",
   "isTemplateActive": true,
-  "liveProgress": "🚀 מתחבר לאתר מכון מור...",
+  "liveProgress": "🛑 עצרתי הכל",
   "nextRunTime": null,
   "bestBranch": "סניף חורב",
   "bestDate": "17:30",
@@ -35,16 +37,19 @@
     "areaPriority": [
       "מרכז",
       "דרום",
-      "צפון"
+      "צפון",
+      "ירושלים והסביבה"
     ],
     "phoneSuffix": "6554868",
     "insuranceType": "כללית",
     "subCategory": "אולטרסאונד",
-    "targetOrgan": "שד"
+    "targetOrgan": "בטן עליונה"
   },
   "provider": "MACHON_MOR",
   "lastBestFound": "",
   "selectedDoctorNames": [],
-  "botStatus": "active",
-  "scanTimeRemaining": null
+  "botStatus": "idle",
+  "scanTimeRemaining": null,
+  "lastOtp": "",
+  "otpReceivedAt": 1774687906627
 }

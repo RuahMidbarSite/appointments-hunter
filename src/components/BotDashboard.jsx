@@ -672,7 +672,7 @@ const handleMorPathChange = (level, value) => {
                                     <p className="text-[#00a896] text-xs font-bold leading-tight">סריקה חכמה ללקוחות כללית</p>
                                 </div>
                                 {config.lastFoundDate && (
-                                    <div className="bg-amber-50 rounded-xl border-2 border-amber-200 py-1.5 px-3 shadow-sm max-w-[320px] relative group">
+                                    <div className="bg-amber-50 rounded-xl border-2 border-amber-200 py-1.5 px-3 shadow-sm max-w-[480px] relative group">
                                         <button 
                                             onClick={handleResetLastFound}
                                             className="absolute -left-2 -top-2 bg-amber-200 text-amber-900 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-amber-300 hover:bg-amber-300 z-10"
@@ -701,7 +701,7 @@ const handleMorPathChange = (level, value) => {
                                                         {config.lastFoundDate.split('-')[0].trim()}
                                                     </span>
                                                 </div>
-                                                <p className="text-sm font-bold text-amber-800 truncate leading-tight text-right">
+                                                <p className="text-[14px] font-bold text-amber-800 leading-snug text-right whitespace-normal break-words mt-1">
                                                     {config.lastFoundDate.split('-').slice(1).join('-').trim()}
                                                 </p>
                                             </>

@@ -43,19 +43,25 @@ async function clickContinueBtn(page, stepName = '') {
 async function clickOptionInBody(page, texts, stepName = '') {
     for (const text of texts) {
         try {
-            // מחפש רק בתוך .body-flex item (אזור התוכן, לא ה-footer)
-            const el = page.locator(`.body-flex.item, .buttons-flex.item, app-service-type-selection, app-insurer, app-examination-type-selection`)
-                           .locator(`xpath=.//*[contains(text(),"${text}")]`).first();
-            const count = await el.count();
-            if (count > 0) {
-                await el.waitFor({ state: 'visible', timeout: 4000 });
-                await el.click({ force: true });
-                console.log(`✅ [${stepName}] לחצתי על: "${text}"`);
+            const cleanText = text.replace(/\s+/g, ' ').trim();
+            
+            // מתמקד רק באזור התוכן המרכזי (app-*) כדי לא ללחוץ בטעות על סרגל ה"סיכום" בצד השמאלי
+            const container = page.locator('app-service-type-selection, app-examination-type-selection, app-insurer, .body-flex, .buttons-flex').last();
+            
+            // מחפש את קוביית הבחירה בלי RegExp נוקשה שעלול להיכשל
+            const el = container.locator('.item, .service-type-category, .service-type-name, button')
+                                .filter({ hasText: cleanText })
+                                .first();
+
+            if (await el.count() > 0) {
+                await el.scrollIntoViewIfNeeded();
+                // לחיצה טבעית (ללא force) כדי שאנגולר יקלוט את הבחירה ויצבע את כפתור 'המשך' בכתום
+                await el.click({ timeout: 3000 });
+                console.log(`✅ [${stepName}] לחצתי על: "${cleanText}"`);
                 return true;
             }
         } catch (e) {}
     }
-    console.log(`⚠️ [${stepName}] לא נמצא אף אחד מ: ${texts.join(', ')}`);
     return false;
 }
 
@@ -388,9 +394,29 @@ async function navigateMor(page, config) {
                 });
             }
 
-            await humanDelay(800, 1200);
+        await humanDelay(800, 1200);
             await clickContinueBtn(page, 'איבר → אזורים');
             await humanDelay(1500, 2000);
+
+            // ----- טיפול במסך שאלות מקדימות (ממוגרפיה/בריאות השד) -----
+            // ----- טיפול במסך שאלות מקדימות (ממוגרפיה/בריאות השד) -----
+        const isQuestionPage = await page.locator('app-questions-selection, .questions-boxes').count();
+        if (isQuestionPage > 0) {
+            console.log("❓ [DEBUG] זוהה מסך שאלות מקדימות. מחפש את התשובה 'לא'...");
+            
+            // התאמה מדויקת ל-HTML של מור: div עם קלאס option בתוך קופסת השאלות
+            const noBtn = page.locator('.questions-boxes .option').filter({ hasText: 'לא' }).first();
+            
+            if (await noBtn.count() > 0) {
+                await noBtn.scrollIntoViewIfNeeded();
+                await noBtn.click(); // לחיצה טבעית לאישור התשובה
+                console.log("✅ [DEBUG] נלחץ 'לא' בשאלות המקדימות.");
+                await humanDelay(1000, 1500);
+                await clickContinueBtn(page, 'שאלות מקדימות → אזורים');
+            } else {
+                console.log("⚠️ [DEBUG] לא נמצא כפתור 'לא' במסך השאלות.");
+            }
+        }
         }
     }
 
@@ -421,8 +447,64 @@ async function navigateMor(page, config) {
             await clickContinueBtn(page, 'בחירת תור → סיכום');
             console.log("✅ תור נבחר והמשכנו למסך הסיכום.");
 
+            // שליפת מידע נוסף ממסך הסיכום (כתובת, טלפון, שם הבדיקה ושאלות)
+            let extraInfo = "";
+            let testNameInfo = "";
+            let addressInfo = "";
+            let phoneInfo = "";
+            
+            try {
+                await page.waitForTimeout(1500); // המתנה לטעינת טקסט הסיכום
+                
+                // חילוץ כל הטקסט מהעמוד כדי לדוג ממנו נתונים בצורה נקייה
+                const bodyText = await page.innerText('body');
+                
+                // 1. חילוץ שם הבדיקה (עוצר בשורת רווח כדי לא לקחת את התאריך בטעות)
+                const testMatch = bodyText.match(/שם הבדיקה:\s*([^\n]+)/);
+                if (testMatch && testMatch[1]) {
+                    testNameInfo = testMatch[1].trim();
+                }
+
+                // 2. חילוץ מספר טלפון (תבנית של 9-10 ספרות שמתחילה ב-0)
+                const phoneMatch = bodyText.match(/0[2-9]\d{7,8}/);
+                if (phoneMatch) {
+                    phoneInfo = phoneMatch[0];
+                }
+
+                // 3. חילוץ הכתובת (תמיד מופיעה שורה אחת מתחת לשם הסניף במור)
+                // שימוש ב-escape למקרה ששם הסניף מכיל תווים מיוחדים
+                const safeBranchName = branchName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const branchRegex = new RegExp(safeBranchName + "\\s*\\n([^\\n]+)");
+                const addressMatch = bodyText.match(branchRegex);
+                
+                if (addressMatch && addressMatch[1] && !addressMatch[1].includes(phoneInfo)) {
+                    addressInfo = addressMatch[1].trim();
+                }
+
+                // 4. חילוץ שאלות מקדימות
+                const questionTexts = await page.locator('div, span, p').filter({ hasText: '?' }).allInnerTexts();
+                const cleanQs = questionTexts
+                    .map(t => t.replace(/\s+/g, ' ').trim())
+                    .filter(t => t.length > 5 && t.length < 120 && t.includes('?'));
+
+                if (cleanQs.length > 0) {
+                    extraInfo = [...new Set(cleanQs)][0];
+                }
+            } catch (e) {
+                console.log("⚠️ [DEBUG] לא הצלחתי לשלוף מידע נוסף ממסך הסיכום.");
+            }
+
+            // בניית המחרוזת כטקסט נקי בלבד (ללא תגיות HTML)
+            // זה פותר לחלוטין את בעיית ה"קוד המיותר" בחיווי הסטטוס משמאל למטה
+            let finalBranchName = branchName.trim();
+            
+            if (addressInfo)  finalBranchName += ` • 📍 ${addressInfo}`;
+            if (phoneInfo)    finalBranchName += ` • 📞 ${phoneInfo}`;
+            if (testNameInfo) finalBranchName += ` • 🩺 ${testNameInfo}`;
+            if (extraInfo)    finalBranchName += ` • 📌 ${extraInfo}`;
+
             foundAppointment = {
-                branch: branchName.trim(),
+                branch: finalBranchName,
                 date: date.trim(),
                 time: time.trim(),
                 area: area,
