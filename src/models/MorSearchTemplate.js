@@ -10,11 +10,13 @@ const morSearchTemplateSchema = new mongoose.Schema({
     loginMode: { type: String, default: 'password' },
     
     // הגדרות ספציפיות למכון מור
-    morSettings: {
+   morSettings: {
         useManualPath: { type: Boolean, default: false },
         targetReferral: { type: String },
         insuranceType: { type: String },
         category: { type: String },
+        subCategory: { type: String }, // השדה שהיה חסר לתת-קטגוריה
+        targetOrgan: { type: String }, // השדה שהיה חסר לאיבר/סוג הבדיקה
         phonePrefix: { type: String },
         phoneSuffix: { type: String },
         areaPriority: [{ type: String }]

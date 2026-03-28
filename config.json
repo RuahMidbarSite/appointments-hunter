@@ -4,10 +4,9 @@
   "password": "Ruah816#",
   "familyMember": "עמרי",
   "email": "online.ruahmidbar1@gmail.com",
-  "loginMode": "password",
+  "loginMode": "sms",
   "selectedCities": [
-    "נהריה",
-    "נתניה"
+    "הרצליה"
   ],
   "includeSurrounding": true,
   "selectedDoctors": [],
@@ -19,20 +18,21 @@
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "",
-  "doctorDates": {},
+  "lastFoundDate": "17:30 - מור: סניף חורב (18.06.2026)",
+  "doctorDates": {
+    "מור: סניף חורב": "17:30"
+  },
   "activeEngines": [
     "mor_institute"
   ],
-  "loadedTemplateId": "69c02862ac68086ed27d6e47",
+  "loadedTemplateId": "69c6b19fac68086ed28a9d3a",
   "isTemplateActive": true,
-  "selectedDoctorNames": [],
-  "liveProgress": "🛑 עצרתי הכל",
+  "liveProgress": "",
   "nextRunTime": null,
-  "bestBranch": "סניף ירושלים קרדיולוגיה",
-  "bestDate": "08:40",
-  "bestTime": "23.03.2026",
-  "createdAt": "2026-03-22T17:35:30.119Z",
+  "bestBranch": "סניף חורב",
+  "bestDate": "17:30",
+  "bestTime": "18.06.2026",
+  "createdAt": "2026-03-27T16:34:37.594Z",
   "morSettings": {
     "useManualPath": true,
     "category": "דימות:  אולטרסאונד / CT",
@@ -43,13 +43,10 @@
     ],
     "phoneSuffix": "6554868",
     "insuranceType": "כללית",
-    "subCategory": "CT",
-    "targetOrgan": "סינוסים"
+    "subCategory": "אולטרסאונד",
+    "targetOrgan": "אשכים"
   },
   "provider": "MACHON_MOR",
-  "lastBestFound": "",
-  "botStatus": "idle",
-  "scanTimeRemaining": null,
-  "lastOtp": "853729",
-  "otpReceivedAt": 1774209967871
+  "lastBestFound": "17:30 - מור: סניף חורב (18.06.2026)",
+  "selectedDoctorNames": []
 }

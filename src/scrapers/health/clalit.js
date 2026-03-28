@@ -456,13 +456,25 @@ async function runClalit(page) {
                     updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
                     
                     try {
-                        await MorSearchTemplate.updateOne(
-                            { userId: config.userId },
-                            { $set: { lastBestFound: foundStr, bestBranch: morResult.branch, bestDate: morResult.date, bestTime: morResult.time, provider: 'MACHON_MOR' } }, 
-                            { upsert: true }
-                        );
-                    } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
-
+                    await MorSearchTemplate.updateOne(
+                        { userId: config.userId },
+                        { 
+                            $set: { 
+                                lastBestFound: foundStr, 
+                                bestBranch: morResult.branch, 
+                                bestDate: morResult.date, 
+                                bestTime: morResult.time, 
+                                provider: 'MACHON_MOR',
+                                // הוספת השדות החסרים מהקונפיגורציה
+                                category: config.morSettings?.category,
+                                subCategory: config.morSettings?.subCategory,
+                                targetOrgan: config.morSettings?.targetOrgan,
+                                insuranceType: config.morSettings?.insuranceType
+                            } 
+                        }, 
+                        { upsert: true }
+                    );
+                } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
                     const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     currentConfig.lastFoundDate = foundStr;
                     fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
