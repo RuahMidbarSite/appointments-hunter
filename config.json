@@ -5,34 +5,30 @@
   "familyMember": "עמרי",
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "sms",
-  "selectedCities": [
-    "הרצליה"
-  ],
+  "selectedCities": [],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "58",
-  "selectedSpecialization": "58",
+  "selectedGroup": "61",
+  "selectedSpecialization": "61",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "17:30 - מור: סניף חורב (18.06.2026)",
-  "doctorDates": {
-    "מור: סניף חורב": "17:30"
-  },
+  "lastFoundDate": "",
+  "doctorDates": {},
   "activeEngines": [
     "mor_institute"
   ],
-  "loadedTemplateId": "69c6b19fac68086ed28a9d3a",
+  "loadedTemplateId": "69c7888eac68086ed28b8ce1",
   "isTemplateActive": true,
-  "liveProgress": "",
+  "liveProgress": "🚀 מתחבר לאתר מכון מור...",
   "nextRunTime": null,
   "bestBranch": "סניף חורב",
   "bestDate": "17:30",
   "bestTime": "18.06.2026",
-  "createdAt": "2026-03-27T16:34:37.594Z",
+  "createdAt": "2026-03-28T07:51:41.740Z",
   "morSettings": {
     "useManualPath": true,
     "category": "דימות:  אולטרסאונד / CT",
@@ -44,9 +40,11 @@
     "phoneSuffix": "6554868",
     "insuranceType": "כללית",
     "subCategory": "אולטרסאונד",
-    "targetOrgan": "אשכים"
+    "targetOrgan": "שד"
   },
   "provider": "MACHON_MOR",
-  "lastBestFound": "17:30 - מור: סניף חורב (18.06.2026)",
-  "selectedDoctorNames": []
+  "lastBestFound": "",
+  "selectedDoctorNames": [],
+  "botStatus": "active",
+  "scanTimeRemaining": null
 }

@@ -379,7 +379,7 @@ const handleMorPathChange = (level, value) => {
             }
         };
 
-        const saveToDB = async () => {
+        const saveToDB = async (forceNew = false) => {
             // יצירת תאריך מלא (DD.MM.YYYY) ושעה
             const now = new Date();
             const day = now.getDate().toString().padStart(2, '0');
@@ -443,8 +443,8 @@ const handleMorPathChange = (level, value) => {
                                     `🕒 שעה: ${timePart}`;
             }
 
-           // החלטה האם מדובר בעדכון או שמירה חדשה
-            const isUpdateAction = config.loadedTemplateId && !config.isTemplateActive;
+          // החלטה האם מדובר בעדכון או שמירה חדשה (forceNew מאלץ יצירת תבנית חדשה)
+            const isUpdateAction = config.loadedTemplateId && !forceNew;
             const actionType = isUpdateAction ? 'update_template' : 'save_template_to_db';
             const finalConfirmMsg = isUpdateAction ? "האם לעדכן את התבנית הקיימת בנתונים החדשים?" : confirmMessage;
 
@@ -456,6 +456,7 @@ const handleMorPathChange = (level, value) => {
                 delete cleanConfigForDB.lastFoundDate;
                 delete cleanConfigForDB.lastBestFound; // חיסול משתנה הרפאים של שם הרופאה
                 delete cleanConfigForDB.doctorDates;
+                if (forceNew) delete cleanConfigForDB.loadedTemplateId; // מחיקת מזהה ישן אם שומרים כחדש
 
                 // שליחה שקטה למסד הנתונים ללא הפעלת הבוט
                 const res = await fetch('/api/save-config', {
@@ -463,7 +464,7 @@ const handleMorPathChange = (level, value) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         action: actionType,
-                        templateId: config.loadedTemplateId, // יישלח רק אם מדובר בעדכון
+                        templateId: isUpdateAction ? config.loadedTemplateId : undefined, // יישלח רק אם מדובר בעדכון
                         data: { 
                             ...cleanConfigForDB, 
                             templateName: autoName,
@@ -478,6 +479,10 @@ const handleMorPathChange = (level, value) => {
                     
                     // 1. מסמנים שהתבנית פעילה, ומעלים את הבאנר הצהוב ותאריכי הרופאים מהמסך
                     const updatedConfig = { ...config, lastFoundDate: '', doctorDates: {}, isTemplateActive: true };
+                    
+                    // אם שמרנו תבנית חדשה, נאפס את ה-ID כדי לא לדרוס את הקודמת
+                    if (forceNew) updatedConfig.loadedTemplateId = null;
+                    
                     setConfig(updatedConfig);
                     handleAutoSave(updatedConfig); // שומרים את הסטטוס הפעיל גם לקובץ
                     
@@ -1069,12 +1074,31 @@ return (
                                     >
                                         🧹 נקה
                                     </button>
-                                    <button 
-                                        onClick={saveToDB}
-                                        className={`w-2/3 text-white py-1.5 rounded-xl font-black text-lg transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 ${config.loadedTemplateId && !config.isTemplateActive ? 'bg-orange-500 hover:bg-orange-600' : 'bg-[#00a896] hover:bg-[#008f80]'}`}
-                                    >
-                                        {config.loadedTemplateId && !config.isTemplateActive ? '🆙 עדכן תבנית' : '💾 שמור תבנית חיפוש'}
-                                    </button>
+                                   {config.loadedTemplateId ? (
+                                        <div className="flex w-2/3 gap-2">
+                                            <button 
+                                                onClick={() => saveToDB(true)}
+                                                className="w-1/2 text-white py-1.5 rounded-xl font-black text-lg transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 bg-[#00a896] hover:bg-[#008f80]"
+                                                title="שמור את השינויים כתבנית חדשה לגמרי"
+                                            >
+                                                ➕ צור תבנית
+                                            </button>
+                                            <button 
+                                                onClick={() => saveToDB(false)}
+                                                className="w-1/2 text-white py-1.5 rounded-xl font-black text-lg transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600"
+                                                title="עדכן ודרוס את התבנית הנוכחית"
+                                            >
+                                                🆙 עדכן תבנית
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button 
+                                            onClick={() => saveToDB(false)}
+                                            className="w-2/3 text-white py-1.5 rounded-xl font-black text-lg transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 bg-[#00a896] hover:bg-[#008f80]"
+                                        >
+                                            💾 שמור תבנית חיפוש
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
