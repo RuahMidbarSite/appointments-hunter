@@ -694,14 +694,14 @@ const handleMorPathChange = (level, value) => {
                                                 dangerouslySetInnerHTML={{ __html: config.lastFoundDate }}
                                             />
                                         ) : (
-                                            <>
-                                                <div className="flex items-center gap-2 border-b border-amber-200 mb-1 pb-0.5">
-                                                    <span className="text-xs font-black text-amber-800 uppercase opacity-75 whitespace-nowrap">התור המוקדם ביותר:</span>
-                                                    <span className="text-lg font-black text-amber-900 leading-none">
+                                           <>
+                                                <div className="flex items-center gap-2 border-b border-amber-200 mb-1 pb-1">
+                                                    <span className="text-lg font-black text-[#004e7c] uppercase whitespace-nowrap">התור המוקדם ביותר:</span>
+                                                    <span className="text-xl font-black text-amber-900 leading-none">
                                                         {config.lastFoundDate.split('-')[0].trim()}
                                                     </span>
                                                 </div>
-                                                <p className="text-[14px] font-bold text-amber-800 leading-snug text-right whitespace-normal break-words mt-1">
+                                                <p className="text-base font-bold text-amber-800 leading-snug text-right whitespace-normal break-words mt-1">
                                                     {config.lastFoundDate.split('-').slice(1).join('-').trim()}
                                                 </p>
                                             </>
