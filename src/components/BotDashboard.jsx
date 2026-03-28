@@ -225,8 +225,104 @@ const getMorOptions = (level, settings) => {
         endDate: '', runInLoop: false, loopFrequency: "10-15",
         startTime: '08:00', endTime: '22:00', lastFoundDate: '', doctorDates: {},
         activeEngines: ['clalit_specialist'],
-        loadedTemplateId: null // שדה חדש לשמירת ה-ID של התבנית שנטענה
+        loadedTemplateId: null,
+        templateQueue: [] // שדה חדש לניהול תור של מספר תבניות
+    });
+
+    // פונקציה להוספת תבנית לתור במקום טעינה בודדת
+    const addToQueue = (template) => {
+        if (config.templateQueue.some(t => t._id === template._id)) {
+            alert("תבנית זו כבר נמצאת בתור");
+            return;
+        }
+        const { _id, templateName, ...cleanData } = template;
+        
+        // משיכת התור המוקדם ביותר מהתבנית (אם קיים)
+        const newFoundDate = template.lastBestFound || template.lastFoundDate || '';
+        
+        // יצירת התור החדש (כולל שמירת התאריך המוקדם ביותר בתוך אובייקט התור)
+        const newQueue = [...config.templateQueue, { ...cleanData, _id, templateName, lastBestFound: newFoundDate }];
+        
+        // הגדרת מצב "נקי" לשדות הטופס תוך שמירה על התור
+        const updated = {
+            ...config,
+            templateQueue: newQueue,
+            lastFoundDate: newFoundDate, // מעדכן את הבאנר הצהוב לתבנית האחרונה שנוספה
+            // איפוס שדות כדי שנוכל לבנות תבנית חדשה בקלות:
+            familyMember: '',
+            selectedGroup: '',
+            selectedSpecialization: '',
+            selectedCities: [],
+            selectedDoctors: [],
+            selectedDoctorNames: [],
+            morSettings: {},
+            isTemplateActive: false,
+            loadedTemplateId: null
+        };
+        
+        setConfig(updated);
+        handleAutoSave(updated);
+        setDbSearchResults([]);
+    };
+
+   // פונקציה להסרת תבנית מהתור
+    const removeFromQueue = (id) => {
+        const updated = {
+            ...config,
+            templateQueue: config.templateQueue.filter(t => t._id !== id)
+        };
+        setConfig(updated);
+        handleAutoSave(updated);
+    };
+
+    // פונקציה לשמירת כל התור כ"קבוצת סריקה" עם שם אוטומטי
+    const saveCurrentQueue = async () => {
+        if (!config.templateQueue || config.templateQueue.length === 0) {
+            alert("אין תבניות בתור לשמירה.");
+            return;
+        }
+
+        // 1. יצירת השם האוטומטי המורכב מהשמות והתחומים
+        const generatedNameParts = config.templateQueue.map(t => {
+            const memberName = t.familyMember || 'ללא שם';
+            let medicalField = 'כללי';
+            if (t.activeEngines?.includes('mor_institute')) {
+                medicalField = t.morSettings?.targetOrgan || t.morSettings?.subCategory || t.morSettings?.category || 'מכון מור';
+            } else {
+                const groupMatch = t.templateName ? t.templateName.match(/תחום:\s*([^|]+)/) : null;
+                medicalField = groupMatch ? groupMatch[1].trim() : 'כללי';
+            }
+            return `${memberName} ${medicalField}`;
         });
+
+        const autoGroupName = generatedNameParts.join(' | ');
+        
+        // 2. חלונית אישור או עריכה לשם הקבוצה
+        const finalGroupName = prompt("שמירת קבוצת סריקה\nהשם מיוצר אוטומטית, ניתן לערוך אותו כעת:", autoGroupName);
+        
+        if (!finalGroupName) return;
+
+        try {
+            const res = await fetch('/api/save-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    action: 'save_queue_to_db', 
+                    queueName: finalGroupName.trim(), 
+                    templates: config.templateQueue 
+                })
+            });
+            
+            if (res.ok) {
+                alert(`✅ הקבוצה "${finalGroupName}" נשמרה בהצלחה!`);
+            } else {
+                alert("❌ שגיאה בשמירת הקבוצה לשרת.");
+            }
+        } catch (err) {
+            console.error("Error saving queue:", err);
+            alert("❌ שגיאת תקשורת בשמירת הקבוצה.");
+        }
+    };
 const handleMorPathChange = (level, value) => {
         let newSettings = { ...config.morSettings, [level]: value };
         if (level === 'insuranceType') { newSettings.category = ''; newSettings.subCategory = ''; newSettings.targetOrgan = ''; }
@@ -544,11 +640,12 @@ const handleMorPathChange = (level, value) => {
     };
 
         const handleRun = async (isSingle = false) => {
-            // חסימת הפעלה אם לא נטענה או נשמרה תבנית מסודרת
-            if (!config.isTemplateActive) {
-                alert("⚠️ עצור! יש לטעון תבנית מתוך הרשימה או לשמור את הנתונים כתבנית חדשה (שמור ל-DB) לפני ההפעלה.");
-                return;
-            }
+    // מאפשר הפעלה אם יש תבנית פעילה או אם התור מכיל תבניות
+    const hasQueue = config.templateQueue && config.templateQueue.length > 0;
+    if (!config.isTemplateActive && !hasQueue) {
+        alert("⚠️ עצור! יש לבחור תבניות לתור הסריקה או לטעון תבנית בודדת לפני ההפעלה.");
+        return;
+    }
 
             // איפוס nextRunTime כדי למנוע הופעת טיימר מהסבב הקודם מיד עם הלחיצה
             const updated = { ...config, runInLoop: !isSingle, nextRunTime: null };
@@ -656,13 +753,13 @@ const handleMorPathChange = (level, value) => {
         const isSingleActive = botLiveStatus === 'active' && !config.runInLoop;
         const isWaiting      = botLiveStatus === 'idle' && timeLeft !== null && timeLeft > 0;
         
-        // בדיקה האם נטענה תבנית מה-DB או נשמרה תבנית חדשה
-        const isReadyToRun = Boolean(config.isTemplateActive);
+        // מוכן לריצה אם יש תבנית בודדת פעילה או אם יש תבניות בתור הסריקה
+const isReadyToRun = Boolean(config.isTemplateActive) || (config.templateQueue && config.templateQueue.length > 0);
         return (
             <div className="h-screen bg-gray-50 flex flex-col overflow-hidden font-sans">
                 <main className="flex-1 flex flex-col overflow-hidden bg-[#f8fbfa]">
-                    {/* 3 Columns Section */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 border-b border-gray-200 bg-white shrink-0 items-start">
+                    {/* 3 Columns Section (Dynamic Grid: 4 columns when queue is active to prevent wrapping) */}
+                    <div className={`grid grid-cols-1 border-b border-gray-200 bg-white shrink-0 items-start ${config.templateQueue?.length > 0 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
                         
                         {/* Column 1: Connection (Right) */}
                         <div className="p-3 border-l border-gray-100 flex flex-col gap-2">
@@ -712,7 +809,8 @@ const handleMorPathChange = (level, value) => {
                                 )}
                             </div>
 
-                            <section className="bg-blue-50/40 border-2 border-blue-100 rounded-2xl p-3 shadow-sm flex flex-col">
+                            {/* העלמה במצב קבוצה */}
+                            <section className={`bg-blue-50/40 border-2 border-blue-100 rounded-2xl p-3 shadow-sm flex flex-col ${config.templateQueue?.length > 0 ? 'hidden' : ''}`}>
                                 <h2 className="text-2xl font-black text-blue-800 mb-3 flex items-center gap-2">
                                     <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span> פרטי התחברות
                                 </h2>
@@ -824,229 +922,175 @@ const handleMorPathChange = (level, value) => {
                                     </div>
                                 </div>
                             </section>
-                        {/* מנגנון ניהול תבניות - גרסה מצומצמת ל-2 שורות */}
-                            <div className="mt-3 bg-gray-100/50 border border-gray-200 rounded-2xl p-2 space-y-1.5">
+                            
+                            {/* אזור החיפוש נשאר גלוי תמיד כדי לאפשר הוספת תבניות לקבוצה */}
+                            <div className="mt-3 bg-gray-100/50 border border-gray-200 rounded-2xl p-2 space-y-1.5 flex-1 flex flex-col">
                                 <div className="relative">
                                     <input 
                                         type="text" 
-                                        placeholder="🔍 חפש תבנית..." 
+                                        placeholder="🔍 חפש תבנית..."
                                         className="w-full px-3 py-1.5 rounded-xl border border-gray-200 focus:border-[#00a896] outline-none text-lg font-bold"
                                         onChange={(e) => searchTemplates(e.target.value)}
                                     />
                                     {dbSearchResults.length > 0 && (
-                                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-96 overflow-y-auto">
+                                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-[450px] overflow-y-auto">
                                         {dbSearchResults.map(t => {
-                                               // 1. חילוץ נתונים לצ'יפים צבעוניים
-const groupMatch = t.templateName.match(/תחום:\s*([^|]+)/);
-const groupLabel = groupMatch ? groupMatch[1].trim() : "";
-
-const specName = t.selectedSpecialization && CLALIT_SPECIALIZATIONS[t.selectedGroup]
-    ? Object.values(CLALIT_SPECIALIZATIONS[t.selectedGroup]).find(s => String(s.id) === String(t.selectedSpecialization))?.name
-    : "";
-
-const morTestType = t.morSettings?.targetOrgan || t.morSettings?.subCategory || t.morSettings?.category || t.morSettings?.targetReferral;
-
-// 2. ניקוי השורה השנייה מכל מה שכבר מופיע בצ'יפים (כדי למנוע כפילות)
-let infoContent = t.templateName;
-[t.familyMember, t.userId, groupLabel, specName, morTestType, "מכון מור", "רפואה יועצת", "בתי חולים"].forEach(term => {
-    if (term) infoContent = infoContent.replace(new RegExp(term, 'g'), '');
-});
-
-// 3. עיבוד סימנים וכותרות לשורה השנייה (הגדרת finalInfo פעם אחת בלבד)
-let finalInfo = infoContent
-    .replace(/תחום:|בדיקה:|רופא:|עיר:|תאריך:|שעה:|אזורים:/g, '')
-    .replace(/\|/g, ' • ')
-    .replace(/\s*•\s*•\s*/g, ' • ')
-    .replace(/^\s*•\s*|\s*•\s*$/g, '')
-    .trim();
-
-return (
-    <div 
-        key={t._id} 
-        className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 group flex flex-col gap-1 text-right"
-        dir="rtl"
-        onClick={() => { 
-    const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
-
-    // ברירת מחדל למנוע אם חסר (פותר את בעיית הצ'קבוקס בתבניות ישנות של כללית)
-    if (!cleanData.activeEngines || cleanData.activeEngines.length === 0) {
-        cleanData.activeEngines = ['clalit_specialist'];
-    }
-
-    // עדכון התור המוקדם ביותר (הקוביה הצהובה) מהתבנית
-    const newFoundDate = cleanData.lastBestFound || cleanData.lastFoundDate || '';
-    cleanData.lastFoundDate = newFoundDate;
-
-    // עדכון doctorDates לתצוגת הרופאים
-    if (newFoundDate && newFoundDate.includes('-')) {
-        const parts = newFoundDate.split('-');
-        const datePart = parts[0].trim();
-        const docPart = parts[1].split('(')[0].trim();
-        cleanData.doctorDates = {};
-        cleanData.doctorDates[docPart] = datePart;
-    } else {
-        cleanData.doctorDates = {};
-    }
-
-    const updatedConfig = { 
-                ...config, 
-                ...cleanData, 
-                activeEngines: cleanData.activeEngines || ['clalit_specialist'],
-                isTemplateActive: true,
-                loadedTemplateId: _id
-            };
-            setConfig(updatedConfig); 
-            handleAutoSave(updatedConfig);
-            setDbSearchResults([]);
-}}
-    >
-        {/* שורה 1: צ'יפים צבעוניים */}
-        <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <span className="text-xl">👤</span>
-                    <span className="text-xl font-black text-purple-700">{t.familyMember}</span>
-                </div>
-                <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
-                    <span className="text-sm">💳</span>
-                    <span className="text-base font-bold text-blue-600">{t.userId}</span>
-                </div>
-
-                {/* צ'יפ סוג מנוע (מופיע תמיד ומוגדר כברירת מחדל לאתר כללית) */}
-                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
-                    ${t.activeEngines?.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
-                      t.activeEngines?.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
-                      'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-                    <span>
-                        {t.activeEngines?.includes('mor_institute') ? '🧪 מכון מור' : 
-                         t.activeEngines?.includes('clalit_hospital') ? '🏥 בתי חולים' : 
-                         '🌐 אתר כללית'}
-                    </span>
-                </div>
-
-                {/* צ'יפ תחום / סוג בדיקה (צבעוני גם למור) */}
-                {(groupLabel || morTestType) && (
-                    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border shadow-sm
-                        ${t.activeEngines?.includes('mor_institute') ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-teal-50 text-teal-700 border-teal-200'}`}>
-                        <span className="text-sm">{t.activeEngines?.includes('mor_institute') ? '🔍' : '📋'}</span>
-                        <span className="text-base font-black">{morTestType || groupLabel}</span>
-                    </div>
-                )}
-            </div>
-            
-            <button onClick={(e) => deleteTemplate(e, t._id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-opacity">🗑️</button>
-        </div>
-
-        {/* שורה 2: מידע משלים בלבד (ערים, אזורים, תאריכי שמירה) */}
-        {finalInfo && (
-            <div className="flex items-start gap-2">
-                <span className="text-sm mt-0.5 opacity-70">📍</span>
-                <p className="text-[15px] font-bold text-gray-700 leading-tight">
-                    {finalInfo}
-                    {t.saveDate && <span className="text-[11px] text-gray-400 font-medium mr-2">({t.saveDate} {t.saveTime})</span>}
-                </p>
-            </div>
-        )}
-    </div>
-);
-                                                
+                                            // --- 1. טיפול בקבוצת סריקה (תיקייה) ---
+                                            if (t.itemType === 'group') {
                                                 return (
                                                     <div 
                                                         key={t._id} 
-                                                        className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 group flex flex-col gap-1 text-right"
+                                                        className="p-3 hover:bg-purple-50 cursor-pointer border-b border-purple-100 last:border-0 group flex items-center justify-between"
                                                         dir="rtl"
-                                                        onClick={() => { 
-    const { _id, __v, updatedAt, templateName, saveDate, saveTime, ...cleanData } = t;
-    
-    // 1. קביעת מנוע ברירת מחדל אם השדה חסר (פותר את בעיית הצ'קבוקס)
-    if (!cleanData.activeEngines || cleanData.activeEngines.length === 0) {
-        cleanData.activeEngines = ['clalit_specialist'];
-    }
-
-    // 2. איפוס ועדכון התור המוקדם ביותר (הקוביה הצהובה)
-    // אנחנו מוודאים ש-lastFoundDate יקבל את הערך מהתבנית החדשה או יתנקה לגמרי
-    const newFoundDate = cleanData.lastBestFound || cleanData.lastFoundDate || '';
-    cleanData.lastFoundDate = newFoundDate;
-
-    // 3. עדכון רשימת הרופאים והתאריכים עבור רפואה יועצת
-    if (newFoundDate && newFoundDate.includes('-')) {
-        const parts = newFoundDate.split('-');
-        const datePart = parts[0].trim();
-        const docPart = parts[1].split('(')[0].trim();
-        cleanData.doctorDates = {}; // איפוס תאריכים ישנים
-        cleanData.doctorDates[docPart] = datePart;
-    } else {
-        cleanData.doctorDates = {}; // ניקוי תאריכים אם אין תור בתבנית
-    }
-
-    // וידוא שהמנוע מתעדכן: אם התבנית ישנה ואין בה שדה מנוע, נבחר רפואה יועצת כברירת מחדל
-                const updatedConfig = { 
-                    ...config, 
-                    ...cleanData, 
-                    activeEngines: cleanData.activeEngines || ['clalit_specialist'],
-                    isTemplateActive: true 
-                };
-                
-                setConfig(updatedConfig); 
-                handleAutoSave(updatedConfig);
-                setDbSearchResults([]);
-}}
+                                                        onClick={() => {
+                                                            const updatedConfig = { 
+                                                                ...config, 
+                                                                templateQueue: [...t.templates], // טוען את כל הקבוצה
+                                                                isTemplateActive: false,
+                                                                loadedTemplateId: null
+                                                            };
+                                                            setConfig(updatedConfig);
+                                                            handleAutoSave(updatedConfig);
+                                                            setDbSearchResults([]);
+                                                        }}
                                                     >
-                                                        {/* שורה 1: שם, ת"ז ותחום (צבעוני) */}
-                                                        <div className="flex items-center justify-between w-full">
-                                                            <div className="flex items-center gap-2 flex-wrap">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xl">👤</span>
-                                                                    <span className="text-xl font-black text-purple-700">{t.familyMember}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
-    <span className="text-sm">💳</span>
-    <span className="text-base font-bold text-blue-600">{t.userId}</span>
-</div>
-
-{/* צ'יפ סוג מנוע חדש (מופיע תמיד ומוגדר כברירת מחדל לאתר כללית) */}
-<div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-base shadow-sm
-    ${t.activeEngines?.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
-      t.activeEngines?.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
-      'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-    <span>
-        {t.activeEngines?.includes('mor_institute') ? '🧪 מכון מור' : 
-         t.activeEngines?.includes('clalit_hospital') ? '🏥 בתי חולים' : 
-         '🌐 אתר כללית'}
-    </span>
-</div>
-
-{groupLabel && (
-    <div className="flex items-center gap-1.5 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
-        <span className="text-sm">🩺</span>
-        <span className="text-base font-black text-teal-700">{groupLabel}</span>
-    </div>
-)}
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="text-3xl drop-shadow-sm">📁</span>
+                                                            <div>
+                                                                <h4 className="text-lg font-black text-purple-900">{t.groupName}</h4>
+                                                                <p className="text-sm text-purple-600 font-bold">{t.templates ? t.templates.length : 0} תבניות בקבוצה</p>
                                                             </div>
-                                                            
-                                                            <button 
-                                                                onClick={(e) => deleteTemplate(e, t._id)} 
-                                                                className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-opacity border border-transparent hover:border-red-100"
-                                                            >
-                                                                🗑️
-                                                            </button>
                                                         </div>
-
-                                                        {/* שורה 2: מידע משלים (מקצוע • עיר • רופאים) */}
-                                                        <div className="flex items-start gap-2">
-                                                            <span className="text-sm mt-0.5 opacity-70">📋</span>
-                                                            <p className="text-[15px] font-bold text-gray-700 leading-tight">
-                                                                {finalInfo}
-                                                                {t.saveDate && (
-                                                                    <span className="text-[11px] text-gray-400 font-medium mr-2">
-                                                                        ({t.saveDate} {t.saveTime})
-                                                                    </span>
-                                                                )}
-                                                            </p>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="bg-purple-600 text-white px-3 py-1 rounded-lg text-sm font-bold shadow-sm">טען קבוצה</span>
+                                                            <button onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                if(confirm("למחוק את הקבוצה ממסד הנתונים?")) {
+                                                                    await fetch('/api/save-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete_template', id: t._id, isGroup: true }) });
+                                                                    setDbSearchResults(prev => prev.filter(item => item._id !== t._id));
+                                                                }
+                                                            }} className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-opacity">🗑️</button>
                                                         </div>
                                                     </div>
                                                 );
-                                            })}
+                                            }
+
+                                            // --- 2. טיפול בתבנית בודדת ---
+                                            const groupMatch = t.templateName?.match(/תחום:\s*([^|]+)/);
+                                            const groupLabel = groupMatch ? groupMatch[1].trim() : "";
+                                            const morTestType = t.morSettings?.targetOrgan || t.morSettings?.subCategory || t.morSettings?.category || t.morSettings?.targetReferral;
+                                            
+                                            // חילוץ שם המקצוע המדויק מהקבוצה הנבחרת
+                                            const specName = t.selectedSpecialization && CLALIT_SPECIALIZATIONS[t.selectedGroup]
+                                                ? Object.values(CLALIT_SPECIALIZATIONS[t.selectedGroup]).find(s => String(s.id) === String(t.selectedSpecialization))?.name
+                                                : "";
+
+                                            // ניקוי השורה השנייה (finalInfo) מכפילויות
+                                            let infoContent = t.templateName || "";
+                                            [t.familyMember, t.userId, groupLabel, specName, morTestType, "מכון מור", "רפואה יועצת", "בתי חולים"].forEach(term => {
+                                                if (term) infoContent = infoContent.replace(new RegExp(term, 'g'), '');
+                                            });
+
+                                            let finalInfo = infoContent
+                                                .replace(/תחום:|בדיקה:|רופא:|עיר:|תאריך:|שעה:|אזורים:/g, '')
+                                                .replace(/\|/g, ' • ')
+                                                .replace(/\s*•\s*•\s*/g, ' • ')
+                                                .replace(/^\s*•\s*|\s*•\s*$/g, '')
+                                                .trim();
+                                            
+                                            return (
+                                                <div 
+                                                    key={t._id} 
+                                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 group flex flex-col gap-2 text-right transition-colors"
+                                                    dir="rtl"
+                                                    onClick={() => { 
+                                                        const { _id, __v, updatedAt, templateName, saveDate, saveTime, itemType, ...cleanData } = t;
+                                                        const newFoundDate = cleanData.lastBestFound || cleanData.lastFoundDate || '';
+                                                        cleanData.lastFoundDate = newFoundDate;
+                                                        
+                                                        if (newFoundDate && newFoundDate.includes('-')) {
+                                                            const parts = newFoundDate.split('-');
+                                                            const datePart = parts[0].trim();
+                                                            const docPart = parts[1].split('(')[0].trim();
+                                                            cleanData.doctorDates = {};
+                                                            cleanData.doctorDates[docPart] = datePart;
+                                                        } else {
+                                                            cleanData.doctorDates = {}; 
+                                                        }
+
+                                                        const updatedConfig = { ...config, ...cleanData, activeEngines: cleanData.activeEngines || ['clalit_specialist'], isTemplateActive: true, loadedTemplateId: _id, templateQueue: [] }; 
+                                                        setConfig(updatedConfig); handleAutoSave(updatedConfig); setDbSearchResults([]);
+                                                    }}
+                                                >
+                                                    {/* שורה 1: צ'יפים ותגים */}
+                                                    <div className="flex items-center justify-between w-full">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xl">👤</span>
+                                                                <span className="text-xl font-black text-blue-900">{t.familyMember}</span>
+                                                            </div>
+                                                            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-black text-[13px] shadow-sm
+                                                                ${t.activeEngines?.includes('mor_institute') ? 'bg-amber-50 border-amber-200 text-amber-700' : 
+                                                                t.activeEngines?.includes('clalit_hospital') ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 
+                                                                'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                                                                <span>{t.activeEngines?.includes('mor_institute') ? '🧪 מור' : t.activeEngines?.includes('clalit_hospital') ? '🏥 בי"ח' : '🌐 כללית'}</span>
+                                                            </div>
+                                                            {(groupLabel || morTestType) && (
+                                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-700 shadow-sm text-[13px] font-black">
+                                                                    <span>{morTestType || groupLabel}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <button onClick={(e) => deleteTemplate(e, t._id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-opacity">🗑️</button>
+                                                    </div>
+
+                                                    {/* שורה 2: מידע משלים (ערים, רופאים, תאריכי שמירה) */}
+                                                    {finalInfo && (
+                                                        <div className="flex items-start gap-2">
+                                                            <span className="text-sm mt-0.5 opacity-70">📍</span>
+                                                            <p className="text-[15px] font-bold text-gray-700 leading-tight">
+                                                                {finalInfo}
+                                                                {t.saveDate && <span className="text-[11px] text-gray-400 font-medium mr-2">({t.saveDate} {t.saveTime})</span>}
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {/* שורה 3: כפתורי פעולה נפרדים לכל תבנית בודדת */}
+                                                    <div className="flex gap-2 w-full mt-1">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); addToQueue(t); }}
+                                                            className="flex-1 bg-purple-100 text-purple-700 hover:bg-purple-200 py-1.5 rounded-lg font-bold text-sm transition-colors border border-purple-200"
+                                                        >
+                                                            ➕ הוסף לקבוצת סריקה
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => { 
+                                                                e.stopPropagation();
+                                                                const { _id, __v, updatedAt, templateName, saveDate, saveTime, itemType, ...cleanData } = t;
+                                                                const newFoundDate = cleanData.lastBestFound || cleanData.lastFoundDate || '';
+                                                                cleanData.lastFoundDate = newFoundDate;
+                                                                
+                                                                if (newFoundDate && newFoundDate.includes('-')) {
+                                                                    const parts = newFoundDate.split('-');
+                                                                    const datePart = parts[0].trim();
+                                                                    const docPart = parts[1].split('(')[0].trim();
+                                                                    cleanData.doctorDates = {};
+                                                                    cleanData.doctorDates[docPart] = datePart;
+                                                                } else {
+                                                                    cleanData.doctorDates = {}; 
+                                                                }
+
+                                                                const updatedConfig = { ...config, ...cleanData, activeEngines: cleanData.activeEngines || ['clalit_specialist'], isTemplateActive: true, loadedTemplateId: _id, templateQueue: [] }; 
+                                                                setConfig(updatedConfig); handleAutoSave(updatedConfig); setDbSearchResults([]);
+                                                            }}
+                                                            className="flex-1 bg-blue-100 text-blue-700 hover:bg-blue-200 py-1.5 rounded-lg font-bold text-sm transition-colors border border-blue-200"
+                                                        >
+                                                            ✏️ ערוך תבנית
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                         </div>
                                     )}
                                 </div>
@@ -1103,11 +1147,103 @@ return (
                             </div>
                         </div>
 
-                        {/* Column 2: Search Settings (Center) */}
-                        <div className="p-3 border-l border-gray-100 flex flex-col gap-2">
-                            <section className="bg-teal-50/40 border-2 border-teal-100 rounded-2xl p-3 shadow-sm">
-                                <div className="flex flex-col gap-3 mb-4">
-                                    <div className="flex flex-wrap gap-3 bg-white p-3 rounded-xl border border-teal-100 shadow-sm">
+                       {/* Column 2: Search Settings (Center) - Dynamic Span */}
+<div className={`p-3 border-l border-gray-100 flex flex-col gap-2 ${config.templateQueue?.length > 0 ? 'col-span-1 lg:col-span-2' : ''}`}>
+    
+    {/* UI של קבוצת סריקה (מוצג רק כשיש תבניות בתור, ומתפרס על העמודות המוסתרות) */}
+    {config.templateQueue && config.templateQueue.length > 0 && (
+        <div className="bg-purple-50/50 p-4 rounded-2xl border border-purple-200 shadow-inner flex-1 flex flex-col h-full">
+            <div className="flex items-center justify-between mb-4 border-b border-purple-200/60 pb-3">
+                <label className="text-2xl font-black text-purple-900 flex items-center gap-3">
+                    <span className="w-3 h-3 bg-purple-500 rounded-full animate-pulse shadow-sm"></span>
+                    קבוצת סריקה פעילה ({config.templateQueue.length})
+                </label>
+                <div className="flex items-center gap-3">
+                    <button 
+                        onClick={() => {
+                            if(confirm("לנקות את קבוצת הסריקה?")) {
+                                const updated = {...config, templateQueue: []};
+                                setConfig(updated); handleAutoSave(updated);
+                            }
+                        }}
+                        className="text-purple-600 hover:text-red-500 font-bold text-sm underline underline-offset-4"
+                    >
+                        נקה קבוצה
+                    </button>
+                    <button 
+                        onClick={saveCurrentQueue}
+                        className="bg-purple-600 text-white px-4 py-2 rounded-xl font-black hover:bg-purple-700 transition-all shadow-md active:scale-95 flex items-center gap-2"
+                    >
+                        <span>💾</span> שמור קבוצה ל-DB
+                    </button>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 overflow-y-auto pr-2 custom-scrollbar">
+                {config.templateQueue.map((t, index) => (
+                    <div key={t._id} className="bg-white p-3 rounded-2xl border-2 border-purple-100 shadow-sm relative group flex flex-col gap-2">
+                        <div className="flex items-center justify-between border-b border-purple-100/50 pb-2">
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center justify-center w-6 h-6 bg-purple-600 text-white rounded-full text-xs font-black shadow-sm">{index + 1}</div>
+                                <span className="text-lg font-black text-gray-800">{t.familyMember || 'ראשי'}</span>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); removeFromQueue(t._id); }} className="text-gray-300 hover:text-red-500 transition-colors font-black text-lg bg-gray-50 hover:bg-red-50 w-7 h-7 flex items-center justify-center rounded-full">✕</button>
+                        </div>
+                        
+                        <div className="flex flex-col gap-1.5 text-[13px] font-bold text-gray-600 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                            <div className="flex justify-between items-start gap-2">
+                                <span className="text-purple-500 text-xs whitespace-nowrap">מנוע/תחום:</span> 
+                                <span className="text-right text-gray-800 leading-tight flex-1">
+                                    {t.activeEngines?.includes('mor_institute') ? '🧪 מור' : t.activeEngines?.includes('clalit_hospital') ? '🏥 בי"ח' : '🌐 יועצת'} • {t.activeEngines?.includes('mor_institute') ? (t.morSettings?.targetOrgan || t.morSettings?.subCategory || 'מכון מור') : (t.templateName?.includes('תחום:') ? t.templateName.split('תחום:')[1].split('|')[0].trim() : 'כללי')}
+                                </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-start gap-2 border-t border-gray-200/60 pt-1.5">
+                                <span className="text-purple-500 text-xs whitespace-nowrap">ביטוח:</span> 
+                                <span className="text-right text-gray-800 flex-1">{t.activeEngines?.includes('mor_institute') ? (t.morSettings?.insuranceType || 'כללית') : (t.insuranceType || 'הכל')}</span>
+                            </div>
+                            
+                            {(t.selectedCities?.length > 0 || t.morSettings?.areaPriority?.length > 0) && (
+                                <div className="flex justify-between items-start gap-2 border-t border-gray-200/60 pt-1.5">
+                                    <span className="text-purple-500 text-xs whitespace-nowrap">אזורים:</span> 
+                                    <span className="text-right text-gray-800 leading-tight flex-1">
+                                        {t.activeEngines?.includes('mor_institute') ? t.morSettings?.areaPriority?.join(', ') : t.selectedCities?.join(', ')}
+                                    </span>
+                                </div>
+                            )}
+                            
+                            {(!t.activeEngines?.includes('mor_institute') && t.selectedDoctorNames?.length > 0) && (
+                                <div className="flex justify-between items-start gap-2 border-t border-gray-200/60 pt-1.5">
+                                    <span className="text-purple-500 text-xs whitespace-nowrap">רופאים:</span> 
+                                    <span className="text-right text-gray-800 leading-tight flex-1 line-clamp-2" title={t.selectedDoctorNames.join(', ')}>
+                                        {t.selectedDoctorNames.join(', ')}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        {t.lastBestFound && (
+                            <div className="mt-auto flex items-center justify-between bg-amber-50 px-2 py-1.5 rounded-lg border border-amber-100">
+                                <span className="text-xs font-black text-amber-700">תור מוקדם:</span>
+                                <span className="text-sm font-black text-amber-900">{t.lastBestFound.split('-')[0].trim()}</span>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+            
+            {/* הנחיה להוספה */}
+            <div className="mt-auto pt-3 text-center">
+                <p className="text-sm text-purple-600 font-bold">כדי להוסיף תבניות נוספות, חפש אותן בשורת החיפוש מימין ולחץ על "➕ הוסף לקבוצת סריקה".</p>
+            </div>
+        </div>
+    )}
+
+    {/* הטפסים הרגילים של עמודה 2 (מוסתרים לחלוטין כשיש קבוצה פעילה) */}
+    <section className={`bg-teal-50/40 border-2 border-teal-100 rounded-2xl p-3 shadow-sm ${config.templateQueue?.length > 0 ? 'hidden' : ''}`}>
+        
+        <div className="flex flex-col gap-3 mb-4">
+            <div className="flex flex-wrap gap-3 bg-white p-3 rounded-xl border border-teal-100 shadow-sm">
                                   {[
     { id: 'clalit_specialist', label: 'רפואה יועצת', icon: '🩺' },
     { id: 'clalit_hospital', label: 'בתי חולים (בדיקות)', icon: '🏥' },
@@ -1451,7 +1587,7 @@ return (
                                                     ? 'bg-[#00a896] opacity-30 grayscale cursor-not-allowed shadow-lg'
                                                     : 'bg-[#00a896] hover:bg-[#008f80] shadow-lg active:translate-y-0.5 active:shadow-inner active:bg-[#007060] cursor-pointer'}`}
                                 >
-                                    {isLoopActive ? '🔄 רץ בלולאה' : 'לולאה'}
+                                   {isLoopActive ? '🔄 רץ בלולאה' : (config.templateQueue?.length > 0 ? 'הפעל תור' : 'לולאה')}
                                 </button>
 
                                 {/* כפתור בדיקה */}

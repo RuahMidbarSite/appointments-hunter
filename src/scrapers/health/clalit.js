@@ -179,42 +179,64 @@ async function runClalit(page) {
             }
         }
 
-        const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-        const engines = config.activeEngines || ['clalit_specialist'];
+        const mainConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+        const queue = (mainConfig.templateQueue && mainConfig.templateQueue.length > 0) 
+            ? mainConfig.templateQueue 
+            : [mainConfig];
 
-        if (engines.includes('mor_institute')) {
-            console.log("🧪 זוהתה בקשה למכון מור - מנווט ישירות למור...");
-            const morResult = await navigateMor(page, config);
+        console.log(`🚀 מתחיל סבב סריקה עבור ${queue.length} תבניות.`);
+
+        for (let i = 0; i < queue.length; i++) {
+            const config = { ...mainConfig, ...queue[i] };
+            const engines = config.activeEngines || ['clalit_specialist'];
             
-            if (morResult) {
-                const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
-                updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
+            updateLiveProgress(`🔄 סורק ${i + 1}/${queue.length}: ${config.familyMember || 'ראשי'}...`);
+            console.log(`\n--- סורק תבנית ${i + 1}: ${config.familyMember} ---`);
+
+            if (engines.includes('mor_institute')) {
+                console.log("🧪 זוהתה בקשה למכון מור - מנווט ישירות למור...");
+                const morResult = await navigateMor(page, config);
                 
-                try {
-                    await MorSearchTemplate.updateOne(
-                        { userId: config.userId },
-                        { $set: { lastBestFound: foundStr, bestBranch: morResult.branch, bestDate: morResult.date, bestTime: morResult.time, provider: 'MACHON_MOR' } }, 
-                        { upsert: true }
-                    );
-                } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
+                if (morResult) {
+                    const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
+                    updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
+                    
+                    try {
+                        await MorSearchTemplate.updateOne(
+                            { userId: config.userId },
+                            { $set: { lastBestFound: foundStr, bestBranch: morResult.branch, bestDate: morResult.date, bestTime: morResult.time, provider: 'MACHON_MOR' } }, 
+                            { upsert: true }
+                        );
+                    } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
 
-                const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-                currentConfig.lastFoundDate = foundStr;
-                fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
+                    const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+                    currentConfig.lastFoundDate = foundStr;
+                    fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
 
-                try {
-                    await sendEmailNotification(`מכון מור - ${morResult.branch}`, morResult.area, `${morResult.date} בשעה ${morResult.time}`, config.email);
-                } catch (e) { console.error("⚠️ שגיאה בשליחת מייל מור:", e.message); }
-            } else {
-                console.log(`ℹ️ הסבב הסתיים. לא נמצאו תורים במכון מור.`);
-                updateLiveProgress("ℹ️ סבב מכון מור הסתיים - לא נמצאו תורים.");
+                    try {
+                        await sendEmailNotification(`מכון מור - ${morResult.branch}`, morResult.area, `${morResult.date} בשעה ${morResult.time}`, config.email);
+                    } catch (e) { console.error("⚠️ שגיאה בשליחת מייל מור:", e.message); }
+                } else {
+                    console.log(`ℹ️ הסבב הסתיים. לא נמצאו תורים במכון מור.`);
+                    updateLiveProgress("ℹ️ סבב מכון מור הסתיים - לא נמצאו תורים.");
+                }
+                
+                console.log(`🏁 סבב מכון מור הסתיים עבור ${config.familyMember}.`);
+                
+                // הכנה לתבנית הבאה בתור (חוזרים לדף הבית של כללית)
+                if (i < queue.length - 1) {
+                    console.log(`🔙 מתכונן לתבנית הבאה... חוזר לדף הבית`);
+                    await page.goto(MAIN_URL, { waitUntil: 'networkidle' }).catch(() => {});
+                    await page.waitForTimeout(5000);
+                    const sessionAlive = await page.$('text="שירותי האון־ליין"').catch(() => null);
+                    if (!sessionAlive) console.log("⚠️ הסשן נותק במעבר בין תבניות.");
+                }
+                
+                continue; // מדלג לסוף הלולאה ועובר לתבנית הבאה בתור!
             }
-            
-            console.log("🏁 סבב מכון מור הסתיים. עובר להמתנה לסבב הבא...");
-            return; 
-        }
 
-        const learningPath = path.join(__dirname, '../../utils/bot_learning_data.json');
+            // --- מכאן מתחילה הלוגיקה של כללית (תרוץ רק אם engines לא מכיל 'mor_institute') ---
+            const learningPath = path.join(__dirname, '../../utils/bot_learning_data.json');
         let scanHistory = {};
         try { if (fs.existsSync(learningPath)) scanHistory = JSON.parse(fs.readFileSync(learningPath, 'utf8')); } catch(e) {}
         
@@ -455,28 +477,38 @@ async function runClalit(page) {
                     const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
                     updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
                     
-                    try {
-                    await MorSearchTemplate.updateOne(
-                        { userId: config.userId },
-                        { 
-                            $set: { 
-                                lastBestFound: foundStr, 
-                                bestBranch: morResult.branch, 
-                                bestDate: morResult.date, 
-                                bestTime: morResult.time, 
-                                provider: 'MACHON_MOR',
-                                // הוספת השדות החסרים מהקונפיגורציה
-                                category: config.morSettings?.category,
-                                subCategory: config.morSettings?.subCategory,
-                                targetOrgan: config.morSettings?.targetOrgan,
-                                insuranceType: config.morSettings?.insuranceType
-                            } 
-                        }, 
-                        { upsert: true }
-                    );
-                } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
+                   try {
+                        // תיקון: חיפוש לפי ID ייחודי כדי לא לדרוס תבניות אחרות של אותו משתמש
+                        const morQuery = config._id ? { _id: config._id } : { userId: config.userId, "morSettings.targetOrgan": config.morSettings?.targetOrgan };
+                        await MorSearchTemplate.updateOne(
+                            morQuery,
+                            { 
+                                $set: { 
+                                    lastBestFound: foundStr, 
+                                    bestBranch: morResult.branch, 
+                                    bestDate: morResult.date, 
+                                    bestTime: morResult.time, 
+                                    provider: 'MACHON_MOR',
+                                    category: config.morSettings?.category,
+                                    subCategory: config.morSettings?.subCategory,
+                                    targetOrgan: config.morSettings?.targetOrgan,
+                                    insuranceType: config.morSettings?.insuranceType
+                                } 
+                            }, 
+                            { upsert: true }
+                        );
+                    } catch (dbErr) { console.error("❌ [DB-ERROR] שמירת נתוני מור נכשלה:", dbErr.message); }
+
                     const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     currentConfig.lastFoundDate = foundStr;
+                    
+                    // תיקון: עדכון התור המוקדם ישירות בתוך קבוצת הסריקה (כדי שיופיע בצ'יפ הספציפי)
+                    if (currentConfig.templateQueue && currentConfig.templateQueue.length > 0) {
+                        const qIndex = currentConfig.templateQueue.findIndex(t => t._id === config._id || t.templateName === config.templateName);
+                        if (qIndex !== -1) {
+                            currentConfig.templateQueue[qIndex].lastBestFound = foundStr;
+                        }
+                    }
                     fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
 
                     try {
@@ -487,10 +519,23 @@ async function runClalit(page) {
                     updateLiveProgress("ℹ️ סבב מכון מור הסתיים - לא נמצאו תורים.");
                 }
                 
-                // במקום לסיים עם return, אנחנו מאפשרים לקוד להמשיך לסוף הפונקציה 
-                // שם נמצא מנגנון ההמתנה והטיימר (finally)
-                console.log("🏁 סבב מכון מור הסתיים. עובר להמתנה לסבב הבא...");
-                return; // זה יקפוץ ישירות לבלוק ה-finally ב-runClalit
+                console.log(`🏁 סבב מכון מור הסתיים עבור ${config.familyMember || 'ראשי'}.`);
+                
+                // הכנה לתבנית הבאה במקום לעצור את כל הלולאה
+                if (i < queue.length - 1) {
+                    const nextConfig = { ...mainConfig, ...queue[i + 1] };
+                    if (nextConfig.activeEngines && nextConfig.activeEngines.includes('mor_institute')) {
+                        console.log(`🔙 התבנית הבאה גם היא של מכון מור - נשאר באתר כדי לחסוך לוגין כפול...`);
+                        await page.goto('https://zimun.mor.org.il/machon-mor/#/main/page/new-appointment', { waitUntil: 'networkidle' }).catch(() => {});
+                        await page.waitForTimeout(3000);
+                    } else {
+                        console.log(`🔙 מתכונן לתבנית הבאה... חוזר לדף הבית של כללית`);
+                        await page.goto(MAIN_URL, { waitUntil: 'networkidle' }).catch(() => {});
+                        await page.waitForTimeout(5000);
+                    }
+                }
+                
+                continue; // מדלג לסוף הלולאה ועובר לתבנית הבאה בתור (חשוב במקום return!)
             }
             
             if (engines.includes('clalit_hospital')) {
@@ -987,11 +1032,35 @@ async function runClalit(page) {
                 console.log(`ℹ️ הסבב הסתיים. נמצאו תורים, אך אף אחד מהם לא מקדים את התור שכבר מופיע בדשבורד (${lastDBDateStr}). לא נשלח מייל.`);
                 updateLiveProgress("ℹ️ הסבב הסתיים - אין תור מקדים חדש.");
             }
-        } else {
-            console.log(`ℹ️ הסבב הסתיים לחלוטין ולא נמצאו תורים כלל.`);
-            updateLiveProgress("ℹ️ הסבב הסתיים ללא תורים חדשים.");
-        }
-   } catch (e) {
+       } else {
+                console.log(`ℹ️ הסבב הסתיים עבור תבנית זו.`);
+                updateLiveProgress(`ℹ️ סיימתי לסרוק את ${config.familyMember || 'התבנית'}.`);
+            }
+
+            // הכנה לתבנית הבאה בתור
+            if (i < queue.length - 1) {
+                const nextConfig = { ...mainConfig, ...queue[i + 1] };
+                const nextIsMor = nextConfig.activeEngines?.includes('mor_institute');
+
+                console.log(`🔙 סיימתי עם ${config.familyMember}, מתכונן לתבנית הבאה...`);
+
+                // תמיד נחזור לדף הבית הראשי כדי להבטיח נקודת מוצא נקייה
+                // הניווט למור או לכללית יתבצע אוטומטית בתחילת הסיבוב הבא של הלולאה
+                await page.goto(MAIN_URL, { waitUntil: 'networkidle' }).catch(() => {});
+                await page.waitForTimeout(5000);
+                
+                // בדיקה אם הסשן עדיין חי אחרי המעבר
+                const sessionAlive = await page.$('text="שירותי האון־ליין"').catch(() => null);
+                if (!sessionAlive) {
+                    console.log("⚠️ הסשן נותק במעבר בין תבניות, הבוט ינסה להתחבר מחדש בסיבוב הבא.");
+                }
+            }
+        } // <--- סגירת לולאת ה-for (queue)
+
+        const endConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+        updateLiveProgress(endConfig.runInLoop ? "✅ הסתיימה הבדיקה לכל התור וממתינים לסבב הבא..." : "✅ הסתיימה הבדיקה.");
+
+    } catch (e) {
         console.error("❌ שגיאה במהלך הבוט:", e.message);
         let currentUrl = '';
         try { currentUrl = page.url(); } catch (err) {} 

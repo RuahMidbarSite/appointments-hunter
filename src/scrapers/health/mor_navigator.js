@@ -66,20 +66,46 @@ async function clickOptionInBody(page, texts, stepName = '') {
 }
 
 async function navigateMor(page, config) {
-    const MOR_URL = 'https://zimun.mor.org.il/machon-mor/#/main/page/login';
+    const MOR_BASE_URL = 'https://zimun.mor.org.il/machon-mor/';
+    const MOR_LOGIN_URL = 'https://zimun.mor.org.il/machon-mor/#/main/page/login';
     console.log("--- מתחיל ניווט באתר מכון מור ---");
-    updateLiveProgress("🚀 מתחבר לאתר מכון מור...");
+    updateLiveProgress("🚀 מנווט לאתר מכון מור...");
+
+    let isAlreadyLoggedIn = false;
 
     try {
-        await page.goto(MOR_URL, { waitUntil: 'networkidle', timeout: 30000 });
-        await page.waitForSelector('#personalId', { state: 'visible', timeout: 30000 });
-        console.log("✅ דף הלוגין נטען.");
+        // בדיקה אם הבוט כבר באתר מכון מור (כדי לא לאפס סשן במעבר בין תבניות של מור)
+        if (!page.url().includes('zimun.mor.org.il')) {
+            await page.goto(MOR_BASE_URL, { waitUntil: 'networkidle', timeout: 30000 });
+        }
+        await page.waitForTimeout(3000); // נותן לאנגולר זמן לטעון ולבדוק את טוקן החיבור
+
+        // בדיקה האם אנחנו כבר מחוברים (האם יש כפתור קביעת תור חדש)
+        isAlreadyLoggedIn = await page.$('.new-app-btn').catch(() => null);
     } catch (err) {
-        console.error("❌ שגיאה בטעינה:", err.message);
+        console.error("❌ שגיאה בטעינת אתר מור:", err.message);
         return null;
     }
 
-    // 1. הזנת תעודת זהות
+    if (isAlreadyLoggedIn) {
+        console.log("⚡ מזהה סשן פעיל במכון מור! מדלג על תהליך ההתחברות הכפול...");
+        await page.click('.new-app-btn');
+        await page.waitForTimeout(2000);
+        // קופץ ישירות לשלב בחירת המסלול החכם
+    } else {
+        console.log("🔑 נדרש לוגין למכון מור...");
+        try {
+            if (!page.url().includes('/login')) {
+                await page.goto(MOR_LOGIN_URL, { waitUntil: 'networkidle', timeout: 30000 });
+            }
+            await page.waitForSelector('#personalId', { state: 'visible', timeout: 20000 });
+            console.log("✅ דף הלוגין נטען.");
+        } catch (err) {
+            console.error("❌ שגיאה בהמתנה לדף הלוגין:", err.message);
+            return null;
+        }
+
+        // 1. הזנת תעודת זהות
     const idNum = String(config.userId || "");
     console.log(`[DEBUG] מזין ת"ז: ${idNum}`);
     await page.fill('#personalId', idNum);
@@ -254,8 +280,9 @@ async function navigateMor(page, config) {
         console.log("⚠️ חלף זמן ההמתנה, קוד שגוי או שגיאה בטעינת מסך מכון מור.");
         return null;
     }
+} // <--- סגירת בלוק ה-else החסר! זה מה שפותר את השגיאה האדומה
 
-    const humanDelay = async (min = 1500, max = 3000) => {
+const humanDelay = async (min = 1500, max = 3000) => {
         await page.waitForTimeout(Math.floor(Math.random() * (max - min + 1) + min));
     };
 

@@ -5,45 +5,42 @@
   "familyMember": "עמרי",
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "sms",
-  "selectedCities": [
-    "חיפה"
-  ],
+  "selectedCities": [],
   "includeSurrounding": true,
   "selectedDoctors": [],
-  "selectedGroup": "58",
-  "selectedSpecialization": "58",
+  "selectedGroup": "",
+  "selectedSpecialization": "",
   "insuranceType": "הכל",
   "endDate": "",
   "runInLoop": false,
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "13:15 - מור: סניף טבריה • 📍 הרב חיים סמאג'א 4 , טבריה • 📞 047705155 • 🩺 בטן עליונה • 📌 האם הנך חולה סוכרת ? לא (23.04.2026)",
+  "lastFoundDate": "",
   "doctorDates": {},
   "activeEngines": [
     "mor_institute"
   ],
-  "loadedTemplateId": "69c7888eac68086ed28b8ce1",
+  "loadedTemplateId": "69c82490ac68086ed28c632c",
+  "templateQueue": [],
   "isTemplateActive": true,
-  "liveProgress": "✅ נמצא תור במור: 13:15 - מור: סניף טבריה • 📍 הרב חיים סמאג'א 4 , טבריה • 📞 047705155 • 🩺 בטן עליונה • 📌 האם הנך חולה סוכרת ? לא (23.04.2026)",
+  "liveProgress": "🛑 עצרתי הכל",
   "nextRunTime": null,
   "bestBranch": "סניף חורב",
   "bestDate": "17:30",
   "bestTime": "18.06.2026",
-  "createdAt": "2026-03-28T07:51:41.740Z",
+  "createdAt": "2026-03-28T18:57:19.832Z",
   "morSettings": {
-    "useManualPath": true,
     "category": "דימות:  אולטרסאונד / CT",
+    "subCategory": "אולטרסאונד",
+    "targetOrgan": "בטן עליונה",
+    "phoneSuffix": "6554868",
     "areaPriority": [
       "מרכז",
+      "ירושלים והסביבה",
       "דרום",
-      "צפון",
-      "ירושלים והסביבה"
-    ],
-    "phoneSuffix": "6554868",
-    "insuranceType": "כללית",
-    "subCategory": "אולטרסאונד",
-    "targetOrgan": "בטן עליונה"
+      "צפון"
+    ]
   },
   "provider": "MACHON_MOR",
   "lastBestFound": "",
@@ -51,5 +48,5 @@
   "botStatus": "idle",
   "scanTimeRemaining": null,
   "lastOtp": "",
-  "otpReceivedAt": 1774705693826
+  "otpReceivedAt": 1774710378127
 }

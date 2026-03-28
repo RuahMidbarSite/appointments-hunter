@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 const SearchTemplate = require('../../src/models/SearchTemplate');
 const MorSearchTemplate = require('../../src/models/MorSearchTemplate'); // המודל החדש של מור
+const ScanGroup = require('../../src/models/ScanGroup'); // מודל קבוצות סריקה
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -34,18 +35,23 @@ module.exports = async function handler(req, res) {
     try {
         await dbConnect();
         
-        // ניתוב חכם: בחירת הטבלה לפי המנוע שמוגדר בקונפיגורציה
-        const isMor = currentConfig.activeEngines && currentConfig.activeEngines.includes('mor_institute');
-        const TargetModel = isMor ? MorSearchTemplate : SearchTemplate;
+        if (currentConfig.templateQueue && currentConfig.templateQueue.length > 0) {
+            // אם אנחנו במצב תור, ניקח את התאריך מהקובץ כדי לא לדרוס את מה שהוסף האחרון לתור
+            lastFoundDate = currentConfig.lastFoundDate || "טרם נמצאו תורים";
+        } else {
+            // ניתוב חכם: בחירת הטבלה לפי המנוע שמוגדר בקונפיגורציה
+            const isMor = currentConfig.activeEngines && currentConfig.activeEngines.includes('mor_institute');
+            const TargetModel = isMor ? MorSearchTemplate : SearchTemplate;
 
-        // בניית השאילתה - למור מחפשים לפי ת.ז, לכללית לפי ת.ז ותחום
-        const query = { userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID') };
-        if (!isMor) query.selectedGroup = currentConfig.selectedGroup;
+            // בניית השאילתה
+            const query = { userId: currentConfig.userId || cleanEnv('CLALIT_USER_ID') };
+            if (!isMor) query.selectedGroup = currentConfig.selectedGroup;
 
-        const template = await TargetModel.findOne(query);
+            const template = await TargetModel.findOne(query);
 
-        if (template && template.lastBestFound) {
-            lastFoundDate = template.lastBestFound;
+            if (template && template.lastBestFound) {
+                lastFoundDate = template.lastBestFound;
+            }
         }
     } catch (e) {
         console.error("❌ שגיאה בסנכרון נתונים מה-DB לדשבורד:", e.message);
@@ -117,19 +123,40 @@ module.exports = async function handler(req, res) {
           const searchFilter = {
               $or: [
                   { familyMember: { $regex: `^${query}`, $options: 'i' } },
-                  { userId: { $regex: `^${query}`, $options: 'i' } }
+                  { userId: { $regex: `^${query}`, $options: 'i' } },
+                  { templateName: { $regex: `${query}`, $options: 'i' } } // חיפוש גם בשם המלא
               ]
           };
-
-          // מחפש בשתי הטבלאות ומאחד תוצאות
-          const clalitTemplates = await SearchTemplate.find(searchFilter).lean();
-          const morTemplates = await MorSearchTemplate.find(searchFilter).lean();
           
-          const combinedTemplates = [...clalitTemplates, ...morTemplates]
-              .sort((a, b) => (a.familyMember || '').localeCompare(b.familyMember || ''))
-              .slice(0, 15);
+          const groupFilter = { groupName: { $regex: `${query}`, $options: 'i' } };
+
+          // מחפש בשלוש הטבלאות ומאחד תוצאות
+          const clalitTemplates = await SearchTemplate.find(searchFilter).lean().then(res => res.map(t => ({...t, itemType: 'single'})));
+          const morTemplates = await MorSearchTemplate.find(searchFilter).lean().then(res => res.map(t => ({...t, itemType: 'single'})));
+          const groupTemplates = await ScanGroup.find(groupFilter).lean().then(res => res.map(g => ({...g, itemType: 'group'})));
+          
+          const combinedTemplates = [...groupTemplates, ...clalitTemplates, ...morTemplates]
+              .sort((a, b) => {
+                  if (a.itemType === 'group' && b.itemType !== 'group') return -1;
+                  if (a.itemType !== 'group' && b.itemType === 'group') return 1;
+                  const nameA = a.familyMember || a.groupName || '';
+                  const nameB = b.familyMember || b.groupName || '';
+                  return nameA.localeCompare(nameB);
+              })
+              .slice(0, 20);
           
           return res.status(200).json(combinedTemplates);
+      }
+
+      // שמירת קבוצת סריקה ל-DB
+      if (req.body.action === 'save_queue_to_db') {
+          const { queueName, templates } = req.body;
+          await ScanGroup.findOneAndUpdate(
+              { groupName: queueName },
+              { groupName: queueName, templates, updatedAt: new Date() },
+              { upsert: true }
+          );
+          return res.status(200).json({ message: 'Queue saved successfully' });
       }
 
       // שמירת תבנית ל-DB (ניתוב אוטומטי לטבלה הנכונה)
@@ -164,12 +191,16 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ message: 'Template updated successfully' });
       }
 
-      // מחיקת תבנית מה-DB
+      // מחיקת תבנית/קבוצה מה-DB
       if (req.body.action === 'delete_template') {
-          const { id } = req.body;
-          // מנסה למחוק משתיהן (רק אחת תצליח בהתאם ל-ID)
-          await SearchTemplate.findByIdAndDelete(id);
-          await MorSearchTemplate.findByIdAndDelete(id);
+          const { id, isGroup } = req.body;
+          if (isGroup) {
+              await ScanGroup.findByIdAndDelete(id);
+          } else {
+              // מנסה למחוק משתיהן (רק אחת תצליח בהתאם ל-ID)
+              await SearchTemplate.findByIdAndDelete(id);
+              await MorSearchTemplate.findByIdAndDelete(id);
+          }
           return res.status(200).json({ message: 'Template deleted' });
       }
 
@@ -248,6 +279,11 @@ module.exports = async function handler(req, res) {
 
      // 2. הכנת הנתונים ושמירת ההגדרות
       const finalConfig = { ...req.body };
+
+      // הבטחת שמירת תור התבניות אם הוא נשלח מהדשבורד
+      if (req.body.templateQueue) {
+          finalConfig.templateQueue = req.body.templateQueue;
+      }
 
       // משיכת פרטי התחברות מה-ENV רק אם השדות בדשבורד ריקים
       if (!finalConfig.userId) finalConfig.userId = cleanEnv('CLALIT_USER_ID');
