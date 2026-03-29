@@ -197,13 +197,23 @@ async function runClalit(page) {
                 console.log("🧪 זוהתה בקשה למכון מור - מנווט ישירות למור...");
                 const morResult = await navigateMor(page, config);
                 
-                if (morResult) {
+if (morResult) {
                     const foundStr = `${morResult.date} - מור: ${morResult.branch} (${morResult.time})`;
                     updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
                     
                     try {
+                        // זיהוי מדויק של התבנית לפי _id או שילוב userId + targetOrgan
+                        let morQuery;
+                        if (config._id && String(config._id).length === 24) {
+                            morQuery = { _id: new mongoose.Types.ObjectId(config._id) };
+                        } else {
+                            morQuery = { 
+                                userId: config.userId, 
+                                "morSettings.targetOrgan": config.morSettings?.targetOrgan 
+                            };
+                        }
                         await MorSearchTemplate.updateOne(
-                            { userId: config.userId },
+                            morQuery,
                             { $set: { lastBestFound: foundStr, bestBranch: morResult.branch, bestDate: morResult.date, bestTime: morResult.time, provider: 'MACHON_MOR' } }, 
                             { upsert: true }
                         );
@@ -211,6 +221,17 @@ async function runClalit(page) {
 
                     const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     currentConfig.lastFoundDate = foundStr;
+                    
+                    // עדכון התור המוקדם ישירות בתוך קבוצת הסריקה לפי ה-index הנכון
+                    if (currentConfig.templateQueue && currentConfig.templateQueue.length > 0) {
+                        const qIndex = currentConfig.templateQueue.findIndex(t => 
+                            (t._id && config._id && String(t._id) === String(config._id)) || 
+                            (t.morSettings && t.morSettings.targetOrgan === config.morSettings?.targetOrgan)
+                        );
+                        if (qIndex !== -1) {
+                            currentConfig.templateQueue[qIndex].lastBestFound = foundStr;
+                        }
+                    }
                     fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
 
                     try {
@@ -223,13 +244,21 @@ async function runClalit(page) {
                 
                 console.log(`🏁 סבב מכון מור הסתיים עבור ${config.familyMember}.`);
                 
-                // הכנה לתבנית הבאה בתור (חוזרים לדף הבית של כללית)
+                // הכנה חכמה לתבנית הבאה - מניעת יציאה ממכון מור אם התבנית הבאה גם שם!
                 if (i < queue.length - 1) {
-                    console.log(`🔙 מתכונן לתבנית הבאה... חוזר לדף הבית`);
-                    await page.goto(MAIN_URL, { waitUntil: 'networkidle' }).catch(() => {});
-                    await page.waitForTimeout(5000);
-                    const sessionAlive = await page.$('text="שירותי האון־ליין"').catch(() => null);
-                    if (!sessionAlive) console.log("⚠️ הסשן נותק במעבר בין תבניות.");
+                    const nextConfig = { ...mainConfig, ...queue[i + 1] };
+if (nextConfig.activeEngines && nextConfig.activeEngines.includes('mor_institute')) {
+                        console.log(`🔙 התבנית הבאה גם היא של מכון מור - חוזר לדף הבית של מור...`);
+                        await page.goto('https://zimun.mor.org.il/machon-mor/', { waitUntil: 'networkidle' }).catch(() => {});
+                        await page.waitForSelector('.new-app-btn', { timeout: 10000 }).catch(() => {});
+                        await page.waitForTimeout(2000);
+                    } else {
+                        console.log(`🔙 מתכונן לתבנית הבאה... חוזר לדף הבית של כללית`);
+                        await page.goto(MAIN_URL, { waitUntil: 'networkidle' }).catch(() => {});
+                        await page.waitForTimeout(5000);
+                        const sessionAlive = await page.$('text="שירותי האון־ליין"').catch(() => null);
+                        if (!sessionAlive) console.log("⚠️ הסשן נותק במעבר בין תבניות.");
+                    }
                 }
                 
                 continue; // מדלג לסוף הלולאה ועובר לתבנית הבאה בתור!
@@ -478,8 +507,17 @@ async function runClalit(page) {
                     updateLiveProgress(`✅ נמצא תור במור: ${foundStr}`);
                     
                    try {
-                        // תיקון: חיפוש לפי ID ייחודי כדי לא לדרוס תבניות אחרות של אותו משתמש
-                        const morQuery = config._id ? { _id: config._id } : { userId: config.userId, "morSettings.targetOrgan": config.morSettings?.targetOrgan };
+                        // שימוש במזהה Mongoose אמין או חיפוש מדויק לפי איבר במכון מור
+                        let morQuery;
+                        if (config._id && config._id.length === 24) {
+                            morQuery = { _id: new mongoose.Types.ObjectId(config._id) };
+                        } else {
+                            morQuery = { 
+                                userId: config.userId, 
+                                "morSettings.targetOrgan": config.morSettings?.targetOrgan 
+                            };
+                        }
+                        
                         await MorSearchTemplate.updateOne(
                             morQuery,
                             { 
@@ -502,9 +540,12 @@ async function runClalit(page) {
                     const currentConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
                     currentConfig.lastFoundDate = foundStr;
                     
-                    // תיקון: עדכון התור המוקדם ישירות בתוך קבוצת הסריקה (כדי שיופיע בצ'יפ הספציפי)
+                    // עדכון התור המוקדם ישירות בתוך קבוצת הסריקה (לפי ID או איבר)
                     if (currentConfig.templateQueue && currentConfig.templateQueue.length > 0) {
-                        const qIndex = currentConfig.templateQueue.findIndex(t => t._id === config._id || t.templateName === config.templateName);
+                        const qIndex = currentConfig.templateQueue.findIndex(t => 
+                            (t._id && config._id && String(t._id) === String(config._id)) || 
+                            (t.morSettings && t.morSettings.targetOrgan === config.morSettings?.targetOrgan)
+                        );
                         if (qIndex !== -1) {
                             currentConfig.templateQueue[qIndex].lastBestFound = foundStr;
                         }
@@ -521,13 +562,12 @@ async function runClalit(page) {
                 
                 console.log(`🏁 סבב מכון מור הסתיים עבור ${config.familyMember || 'ראשי'}.`);
                 
-                // הכנה לתבנית הבאה במקום לעצור את כל הלולאה
+                // הכנה חכמה לתבנית הבאה - מניעת יציאה ממכון מור אם התבנית הבאה גם שם!
                 if (i < queue.length - 1) {
                     const nextConfig = { ...mainConfig, ...queue[i + 1] };
-                    if (nextConfig.activeEngines && nextConfig.activeEngines.includes('mor_institute')) {
-                        console.log(`🔙 התבנית הבאה גם היא של מכון מור - נשאר באתר כדי לחסוך לוגין כפול...`);
-                        await page.goto('https://zimun.mor.org.il/machon-mor/#/main/page/new-appointment', { waitUntil: 'networkidle' }).catch(() => {});
-                        await page.waitForTimeout(3000);
+if (nextConfig.activeEngines && nextConfig.activeEngines.includes('mor_institute')) {
+                        console.log(`🔙 התבנית הבאה גם היא של מכון מור - navigateMor יטפל בלוגין אם נדרש.`);
+                        // לא מנווטים - navigateMor בודק את המצב ומחליט לבד
                     } else {
                         console.log(`🔙 מתכונן לתבנית הבאה... חוזר לדף הבית של כללית`);
                         await page.goto(MAIN_URL, { waitUntil: 'networkidle' }).catch(() => {});
@@ -535,7 +575,7 @@ async function runClalit(page) {
                     }
                 }
                 
-                continue; // מדלג לסוף הלולאה ועובר לתבנית הבאה בתור (חשוב במקום return!)
+                continue; // מדלג לסוף הלולאה ועובר לתבנית הבאה בתור!
             }
             
             if (engines.includes('clalit_hospital')) {
@@ -896,11 +936,17 @@ async function runClalit(page) {
                                             updateMemory(cleanDoctorName, bestAppt.dateStr, bestAppt.actualCity);
 
                                             try {
-                                                const mongoose = require('mongoose');
                                                 const SearchTemplate = require('../../models/SearchTemplate');
                                                 if (mongoose.connection.readyState === 0) await mongoose.connect(process.env.MONGODB_URI);
 
-                                                const currentInDB = await SearchTemplate.findOne({ userId: config.userId, selectedGroup: config.selectedGroup });
+                                                let dbQuery;
+                                                if (config._id && config._id.length === 24) {
+                                                    dbQuery = { _id: new mongoose.Types.ObjectId(config._id) };
+                                                } else {
+                                                    dbQuery = { userId: config.userId, selectedGroup: config.selectedGroup };
+                                                }
+                                                
+                                                const currentInDB = await SearchTemplate.findOne(dbQuery);
                                                 let isSoFarBest = true;
 
                                                 if (currentInDB && currentInDB.lastBestFound) {
@@ -919,7 +965,7 @@ async function runClalit(page) {
                                                     const foundStr = `${bestAppt.dateStr} - ${cleanDoctorName} (${bestAppt.actualCity})`;
                                                     
                                                     await SearchTemplate.updateOne(
-                                                        { userId: config.userId, selectedGroup: config.selectedGroup },
+                                                        dbQuery,
                                                         { $set: { lastBestFound: foundStr } },
                                                         { upsert: true }
                                                     );
@@ -929,6 +975,17 @@ async function runClalit(page) {
                                                     currentConfig.lastBestFound = foundStr;
                                                     if (!currentConfig.doctorDates) currentConfig.doctorDates = {};
                                                     currentConfig.doctorDates[cleanDoctorName] = bestAppt.dateStr;
+                                                    
+                                                    // עדכון התור המוקדם גם בכרטיסיית הקבוצה
+                                                    if (currentConfig.templateQueue && currentConfig.templateQueue.length > 0) {
+                                                        const qIndex = currentConfig.templateQueue.findIndex(t => 
+                                                            (t._id && config._id && String(t._id) === String(config._id)) || 
+                                                            (t.selectedGroup === config.selectedGroup)
+                                                        );
+                                                        if (qIndex !== -1) {
+                                                            currentConfig.templateQueue[qIndex].lastBestFound = foundStr;
+                                                        }
+                                                    }
                                                     fs.writeFileSync('./config.json', JSON.stringify(currentConfig, null, 2));
 
                                                     updateMemory(cleanDoctorName, bestAppt.dateStr, bestAppt.actualCity);

@@ -68,7 +68,11 @@ async function clickOptionInBody(page, texts, stepName = '') {
 async function navigateMor(page, config) {
     const MOR_BASE_URL = 'https://zimun.mor.org.il/machon-mor/';
     const MOR_LOGIN_URL = 'https://zimun.mor.org.il/machon-mor/#/main/page/login';
-    console.log("--- מתחיל ניווט באתר מכון מור ---");
+ console.log("--- מתחיל ניווט באתר מכון מור ---");
+    console.log(`[DEBUG-CONFIG] morSettings שהתקבל:`, JSON.stringify(config.morSettings || {}));
+    console.log(`[DEBUG-CONFIG] phoneSuffix: "${config.morSettings?.phoneSuffix || config.phoneSuffix || 'חסר!'}", phonePrefix: "${config.morSettings?.phonePrefix || config.phonePrefix || 'חסר!'}"`);
+    console.log(`[DEBUG-URL] כתובת נוכחית בכניסה ל-navigateMor: ${page.url()}`);
+    
     updateLiveProgress("🚀 מנווט לאתר מכון מור...");
 
     let isAlreadyLoggedIn = false;
@@ -82,6 +86,7 @@ async function navigateMor(page, config) {
 
         // בדיקה האם אנחנו כבר מחוברים (האם יש כפתור קביעת תור חדש)
         isAlreadyLoggedIn = await page.$('.new-app-btn').catch(() => null);
+        console.log(`[DEBUG-LOGIN] isAlreadyLoggedIn: ${!!isAlreadyLoggedIn}, URL: ${page.url()}`);
     } catch (err) {
         console.error("❌ שגיאה בטעינת אתר מור:", err.message);
         return null;
@@ -180,7 +185,13 @@ async function navigateMor(page, config) {
     await page.waitForTimeout(500);
 
     // 3. הזנת מספר טלפון — עם אימות Angular
-    const phoneSuffix = String(config.morSettings?.phoneSuffix || config.phoneSuffix || "");
+    const phoneSuffix = String(
+        config.morSettings?.phoneSuffix || 
+        config.phoneSuffix || 
+        (config.morSettings?.phone ? config.morSettings.phone.slice(-7) : "") ||
+        ""
+    );
+    console.log(`[DEBUG] phoneSuffix שנמצא: "${phoneSuffix}" (מ-morSettings: "${config.morSettings?.phoneSuffix}", מ-config: "${config.phoneSuffix}")`);
     console.log(`[DEBUG] מזין טלפון: ${phoneSuffix}`);
 
     // ממתין שהשדה יהיה זמין ומנקה אותו לפני הזנה

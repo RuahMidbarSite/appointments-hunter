@@ -455,6 +455,8 @@ const handleMorPathChange = (level, value) => {
         };
         
     const [dbSearchResults, setDbSearchResults] = useState([]);
+    const [selectedQueueIndex, setSelectedQueueIndex] = useState(0);
+    const [bannerDate, setBannerDate] = useState('');
 
         const searchTemplates = async (query) => {
             // אם השדה ריק, מנקה את התוצאות מיד. אחרת - מחפש החל מהאות הראשונה.
@@ -768,7 +770,7 @@ const isReadyToRun = Boolean(config.isTemplateActive) || (config.templateQueue &
                                     <h1 className="text-2xl font-black text-[#005a4c] leading-none">צייד התורים</h1>
                                     <p className="text-[#00a896] text-xs font-bold leading-tight">סריקה חכמה ללקוחות כללית</p>
                                 </div>
-                                {config.lastFoundDate && (
+                               {((config.templateQueue?.length > 0 ? bannerDate : config.lastFoundDate)) && (
                                     <div className="bg-amber-50 rounded-xl border-2 border-amber-200 py-1.5 px-3 shadow-sm max-w-[480px] relative group">
                                         <button 
                                             onClick={handleResetLastFound}
@@ -778,33 +780,33 @@ const isReadyToRun = Boolean(config.isTemplateActive) || (config.templateQueue &
                                             ✕
                                         </button>
                                     {/* בדיקה גמישה יותר - האם יש HTML או שמדובר בשגיאת הפניה */}
-    {(config.lastFoundDate && (config.lastFoundDate.includes('<span') || config.lastFoundDate.includes('חסרה הפניה'))) ? (
+    {(() => {
+        const activeDateStr = config.templateQueue?.length > 0 ? bannerDate : config.lastFoundDate;
+        if (!activeDateStr) return null;
+        if (activeDateStr.includes('<span') || activeDateStr.includes('חסרה הפניה')) {
+            return <div className="text-lg font-black leading-tight py-1 text-right" dangerouslySetInnerHTML={{ __html: activeDateStr }} />;
+        }
+        return (
+            <>
+                <div className="flex items-center gap-2 border-b border-amber-200 mb-1 pb-1">
+                    <span className="text-lg font-black text-[#004e7c] uppercase whitespace-nowrap">
+                        {config.templateQueue?.length > 0 ? `תור של ${config.templateQueue[selectedQueueIndex]?.familyMember || ''}:` : 'התור המוקדם ביותר:'}
+                    </span>
+                    <span className="text-xl font-black text-amber-900 leading-none">
+                        {activeDateStr.split('-')[0].trim()}
+                    </span>
+                </div>
+                <p className="text-base font-bold text-amber-800 leading-snug text-right whitespace-normal break-words mt-1">
+                    {activeDateStr.split('-').slice(1).join('-').trim()}
+                </p>
+            </>
+        );
+    })()}
                                             <div 
                                                 className="text-lg font-black leading-tight py-1 text-right"
                                                 dangerouslySetInnerHTML={{ __html: config.lastFoundDate }}
                                             />
-                                        ) : (
-                                            <>
-                                                {config.lastFoundDate.includes('<span') ? (
-                                            <div 
-                                                className="text-lg font-black leading-tight py-1 text-right"
-                                                dangerouslySetInnerHTML={{ __html: config.lastFoundDate }}
-                                            />
-                                        ) : (
-                                           <>
-                                                <div className="flex items-center gap-2 border-b border-amber-200 mb-1 pb-1">
-                                                    <span className="text-lg font-black text-[#004e7c] uppercase whitespace-nowrap">התור המוקדם ביותר:</span>
-                                                    <span className="text-xl font-black text-amber-900 leading-none">
-                                                        {config.lastFoundDate.split('-')[0].trim()}
-                                                    </span>
-                                                </div>
-                                                <p className="text-base font-bold text-amber-800 leading-snug text-right whitespace-normal break-words mt-1">
-                                                    {config.lastFoundDate.split('-').slice(1).join('-').trim()}
-                                                </p>
-                                            </>
-                                        )}
-                                            </>
-                                        )}
+                                        
                                     </div>
                                 )}
                             </div>
@@ -949,10 +951,12 @@ const isReadyToRun = Boolean(config.isTemplateActive) || (config.templateQueue &
                                                                 isTemplateActive: false,
                                                                 loadedTemplateId: null
                                                             };
-                                                            setConfig(updatedConfig);
-                                                            handleAutoSave(updatedConfig);
-                                                            setDbSearchResults([]);
-                                                        }}
+                                                                setConfig(updatedConfig);
+                                                                handleAutoSave(updatedConfig);
+                                                                setSelectedQueueIndex(0);
+                                                                setBannerDate(t.templates?.[0]?.lastBestFound || '');
+                                                                setDbSearchResults([]);
+                                                                            }}
                                                     >
                                                         <div className="flex items-center gap-3">
                                                             <span className="text-3xl drop-shadow-sm">📁</span>
@@ -1181,7 +1185,15 @@ const isReadyToRun = Boolean(config.isTemplateActive) || (config.templateQueue &
             
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 overflow-y-auto pr-2 custom-scrollbar">
                 {config.templateQueue.map((t, index) => (
-                    <div key={t._id} className="bg-white p-3 rounded-2xl border-2 border-purple-100 shadow-sm relative group flex flex-col gap-2">
+                    <div 
+                    key={t._id} 
+                    onClick={() => {
+                        setSelectedQueueIndex(index);
+                        setBannerDate(t.lastBestFound || '');
+                    }}
+                    className={`bg-white p-3 rounded-2xl border-2 shadow-sm relative group flex flex-col gap-2 cursor-pointer transition-all
+                        ${selectedQueueIndex === index ? 'border-amber-400 ring-2 ring-amber-200 bg-amber-50/30' : 'border-purple-100 hover:border-purple-300'}`}
+                >
                         <div className="flex items-center justify-between border-b border-purple-100/50 pb-2">
                             <div className="flex items-center gap-2">
                                 <div className="flex items-center justify-center w-6 h-6 bg-purple-600 text-white rounded-full text-xs font-black shadow-sm">{index + 1}</div>

@@ -2,7 +2,7 @@
   "userId": "029280484",
   "userCode": "WL13044",
   "password": "Ruah816#",
-  "familyMember": "עמרי",
+  "familyMember": "אניגמה דיי",
   "email": "online.ruahmidbar1@gmail.com",
   "loginMode": "sms",
   "selectedCities": [],
@@ -16,37 +16,120 @@
   "loopFrequency": "10-15",
   "startTime": "08:00",
   "endTime": "22:00",
-  "lastFoundDate": "",
-  "doctorDates": {},
+  "lastFoundDate": "17:50 - מור: סניף חורב • 📍 חורב 15, חיפה • 📞 048305454 • 🩺 אשכים (18.06.2026)",
+  "doctorDates": {
+    "מור: סניף חורב • 📍 חורב 15, חיפה • 📞 048305454 • 🩺 אשכים": "17:50"
+  },
   "activeEngines": [
     "mor_institute"
   ],
-  "loadedTemplateId": "69c82490ac68086ed28c632c",
-  "templateQueue": [],
-  "isTemplateActive": true,
-  "liveProgress": "🛑 עצרתי הכל",
+  "loadedTemplateId": null,
+  "templateQueue": [
+    {
+      "__v": 0,
+      "activeEngines": [
+        "mor_institute"
+      ],
+      "bestBranch": "סניף חורב • 📍 חורב 15, חיפה • 📞 048305454 • 🩺 אשכים",
+      "bestDate": "17:50",
+      "bestTime": "18.06.2026",
+      "createdAt": "2026-03-29T12:18:03.630Z",
+      "email": "online.ruahmidbar1@gmail.com",
+      "endDate": "",
+      "endTime": "22:00",
+      "familyMember": "אניגמה דיי",
+      "loginMode": "sms",
+      "loopFrequency": "10-15",
+      "morSettings": {
+        "category": "דימות:  אולטרסאונד / CT",
+        "subCategory": "אולטרסאונד",
+        "targetOrgan": "אשכים",
+        "phoneSuffix": "6554868",
+        "areaPriority": [
+          "צפון",
+          "דרום",
+          "ירושלים והסביבה",
+          "מרכז"
+        ]
+      },
+      "password": "Ruah816#",
+      "provider": "MACHON_MOR",
+      "saveDate": "29.03.2026",
+      "saveTime": "15:54",
+      "startTime": "08:00",
+      "updatedAt": "2026-03-29T13:02:47.099Z",
+      "userCode": "WL13044",
+      "userId": "029280484",
+      "lastBestFound": "17:50 - מור: סניף חורב • 📍 חורב 15, חיפה • 📞 048305454 • 🩺 אשכים (18.06.2026)",
+      "itemType": "single",
+      "_id": "69c9187cac68086ed28d51f7",
+      "templateName": "אניגמה דיי | תז: 029280484 | מכון מור | בדיקה: אשכים | תאריך: 29.03.2026 | שעה: 15:54"
+    },
+    {
+      "__v": 0,
+      "activeEngines": [
+        "mor_institute"
+      ],
+      "bestBranch": "סניף טבריה • 📍 הרב חיים סמאג'א 4 , טבריה • 📞 047705155 • 🩺 בטן עליונה • 📌 האם הנך חולה סוכרת ? לא",
+      "bestDate": "10:00",
+      "bestTime": "05.04.2026",
+      "createdAt": "2026-03-29T12:18:39.947Z",
+      "email": "online.ruahmidbar1@gmail.com",
+      "endDate": "",
+      "endTime": "22:00",
+      "familyMember": "עמרי",
+      "loginMode": "sms",
+      "loopFrequency": "10-15",
+      "morSettings": {
+        "category": "דימות:  אולטרסאונד / CT",
+        "subCategory": "אולטרסאונד",
+        "targetOrgan": "בטן עליונה",
+        "phoneSuffix": "6554868",
+        "areaPriority": [
+          "צפון",
+          "דרום",
+          "ירושלים והסביבה",
+          "מרכז"
+        ]
+      },
+      "password": "Ruah816#",
+      "provider": "MACHON_MOR",
+      "saveDate": "29.03.2026",
+      "saveTime": "15:54",
+      "startTime": "08:00",
+      "updatedAt": "2026-03-29T13:04:24.581Z",
+      "userCode": "WL13044",
+      "userId": "029280484",
+      "lastBestFound": "10:00 - מור: סניף טבריה • 📍 הרב חיים סמאג'א 4 , טבריה • 📞 047705155 • 🩺 בטן עליונה • 📌 האם הנך חולה סוכרת ? לא (05.04.2026)",
+      "itemType": "single",
+      "_id": "69c918a0ac68086ed28d520c",
+      "templateName": "עמרי | תז: 029280484 | מכון מור | בדיקה: בטן עליונה | תאריך: 29.03.2026 | שעה: 15:54"
+    }
+  ],
+  "isTemplateActive": false,
+  "liveProgress": "✅ הסתיימה הבדיקה.",
   "nextRunTime": null,
-  "bestBranch": "סניף חורב",
-  "bestDate": "17:30",
-  "bestTime": "18.06.2026",
-  "createdAt": "2026-03-28T18:57:19.832Z",
+  "selectedDoctorNames": [],
   "morSettings": {
     "category": "דימות:  אולטרסאונד / CT",
     "subCategory": "אולטרסאונד",
-    "targetOrgan": "בטן עליונה",
+    "targetOrgan": "אשכים",
     "phoneSuffix": "6554868",
     "areaPriority": [
-      "מרכז",
-      "ירושלים והסביבה",
+      "צפון",
       "דרום",
-      "צפון"
+      "ירושלים והסביבה",
+      "מרכז"
     ]
   },
-  "provider": "MACHON_MOR",
-  "lastBestFound": "",
-  "selectedDoctorNames": [],
   "botStatus": "idle",
   "scanTimeRemaining": null,
   "lastOtp": "",
-  "otpReceivedAt": 1774710378127
+  "otpReceivedAt": 1774791570099,
+  "bestBranch": "סניף חורב • 📍 חורב 15, חיפה • 📞 048305454 • 🩺 אשכים",
+  "bestDate": "17:50",
+  "bestTime": "18.06.2026",
+  "createdAt": "2026-03-29T12:18:03.630Z",
+  "provider": "MACHON_MOR",
+  "lastBestFound": "17:50 - מור: סניף חורב • 📍 חורב 15, חיפה • 📞 048305454 • 🩺 אשכים (18.06.2026)"
 }

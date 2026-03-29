@@ -149,18 +149,24 @@ module.exports = async function handler(req, res) {
       }
 
       // שמירת קבוצת סריקה ל-DB
-      if (req.body.action === 'save_queue_to_db') {
+if (req.body.action === 'save_queue_to_db') {
           const { queueName, templates } = req.body;
+          if (!queueName || !queueName.trim()) {
+              return res.status(400).json({ error: 'Missing queue name' });
+          }
+          if (!templates || templates.length === 0) {
+              return res.status(400).json({ error: 'No templates in queue' });
+          }
           await ScanGroup.findOneAndUpdate(
-              { groupName: queueName },
-              { groupName: queueName, templates, updatedAt: new Date() },
-              { upsert: true }
+              { groupName: queueName.trim() },
+              { groupName: queueName.trim(), templates, updatedAt: new Date() },
+              { upsert: true, new: true }
           );
           return res.status(200).json({ message: 'Queue saved successfully' });
       }
 
       // שמירת תבנית ל-DB (ניתוב אוטומטי לטבלה הנכונה)
-      if (req.body.action === 'save_template_to_db') {
+if (req.body.action === 'save_template_to_db') {
           const { templateName, ...configData } = req.body.data;
           
           const isMor = configData.activeEngines && configData.activeEngines.includes('mor_institute');
@@ -168,8 +174,8 @@ module.exports = async function handler(req, res) {
 
           await TargetModel.findOneAndUpdate(
               { templateName },
-              { ...configData, updatedAt: new Date() },
-              { upsert: true }
+              { templateName, ...configData, updatedAt: new Date() },
+              { upsert: true, runValidators: false }
           );
           return res.status(200).json({ message: 'Saved to DB' });
       }
